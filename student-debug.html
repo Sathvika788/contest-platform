@@ -276,7 +276,15 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
     
     <script>
-        const API_URL = "http://3.108.67.225:5000/api";
+        // Detect if we are running locally or on the deployed server
+const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+// Set API_URL dynamically
+const API_URL = isLocal 
+    ? "http://localhost:5000/api" 
+    : "http://3.108.67.225:5000/api";
+
+console.log("Connected to API at:", API_URL);
         const urlParams = new URLSearchParams(window.location.search);
         const contestId = urlParams.get('id');
         const token = localStorage.getItem('token');
