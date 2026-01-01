@@ -8315,11 +8315,69 @@ app.get('/api/student/available-debug-contests', verifyToken, async (req, res) =
     }
 });
 // ====================================================
+// DELETE REGULAR CONTEST
+// ====================================================
+app.delete('/api/moderator/contest/:id', verifyToken, async (req, res) => {
+    const contestId = req.params.id;
+    
+    try {
+        console.log(`Attempting to delete contest: ${contestId}`);
+
+        // 1. First, verify the contest exists and the user has permission
+        const { Item } = await client.send(new GetItemCommand({
+            TableName: "Contests",
+            Key: ddbMarshall({ contest_id: contestId })
+        }));
+
+        if (!Item) {
+            return res.status(404).json({ 
+                success: false, 
+                message: "Contest not found" 
+            });
+        }
+
+        const contest = unmarshall(Item);
+
+        // 2. Permission Check: Only the creator or an admin can delete
+        if (req.user.role !== 'admin' && contest.created_by !== req.user.email) {
+            return res.status(403).json({ 
+                success: false, 
+                message: "Access denied. You can only delete your own contests." 
+            });
+        }
+
+        // 3. Delete the contest from DynamoDB
+        await client.send(new DeleteItemCommand({
+            TableName: "Contests",
+            Key: ddbMarshall({ contest_id: contestId })
+        }));
+
+        console.log(`Successfully deleted contest: ${contestId}`);
+        
+        res.json({ 
+            success: true, 
+            message: "Contest deleted successfully" 
+        });
+
+    } catch (err) {
+        console.error("Delete Contest Error:", err);
+        res.status(500).json({ 
+            success: false, 
+            message: "Failed to delete contest", 
+            error: err.message 
+        });
+    }
+});
+// ====================================================
 // 13. SERVER STARTUP
 // ====================================================
-
+// In server.js
+app.use(cors({
+    origin: ['http://localhost:5000', 'http://3.108.67.225'], // Add your deployment URL here
+    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 const PORT = process.env.PORT || 5000;
-
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
