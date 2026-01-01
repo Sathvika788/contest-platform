@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Portal - ContestPro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #1a73e8;
+            --primary-glow: rgba(26, 115, 232, 0.4);
+            --white: #ffffff;
+            --text-main: #101828;
+            --text-muted: #667085;
+            --glass-bg: rgba(255, 255, 255, 0.9);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+        body { 
+            background-color: #f8f9fa;
+            background-image: radial-gradient(at 0% 0%, hsla(214,100%,90%,1) 0, transparent 50%);
+            display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px;
+        }
+        .card { 
+            background: var(--glass-bg); backdrop-filter: blur(12px); padding: 40px; border-radius: 24px; 
+            box-shadow: 0 20px 24px -4px rgba(16, 24, 40, 0.08); width: 100%; max-width: 440px; text-align: center;
+        }
+        .logo-img { height: 70px; border-radius: 16px; margin-bottom: 24px; }
+        h2 { font-size: 28px; font-weight: 800; color: var(--text-main); margin-bottom: 24px; }
+        .toggle-btns { display: flex; gap: 8px; margin-bottom: 24px; background: rgba(0,0,0,0.05); padding: 5px; border-radius: 12px; }
+        .toggle-btns button { flex: 1; padding: 10px; border: none; background: transparent; cursor: pointer; border-radius: 8px; font-weight: 600; }
+        .toggle-btns button.active { background: var(--white); color: var(--primary); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        input, select { width: 100%; padding: 12px 16px; margin: 8px 0; border: 1px solid #D0D5DD; border-radius: 10px; }
+        .btn-action { width: 100%; padding: 14px; background: var(--primary); color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: 700; margin-top: 15px; }
+        .hidden { display: none; }
+        #msg { margin-top: 15px; color: #d92d20; font-size: 14px; font-weight: 500; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo-box"><img src="logo.jpg" alt="Logo" class="logo-img"></div>
+        <h2>Student Portal</h2>
+        <div class="toggle-btns">
+            <button id="btnReg" class="active" onclick="showForm('register')">Register</button>
+            <button id="btnLogin" onclick="showForm('login')">Login</button>
+        </div>
+        <div id="registerForm">
+            <input type="email" id="regEmail" placeholder="Email Address">
+            <input type="text" id="regName" placeholder="Full Name">
+            <input type="tel" id="regPhone" placeholder="Phone Number">
+            <select id="collegeDropdown"><option value="">Loading colleges...</option></select>
+            <button class="btn-action" onclick="registerStudent()">Create Profile</button>
+        </div>
+        <div id="loginForm" class="hidden">
+            <input type="email" id="loginEmail" placeholder="Enter Registered Email">
+            <button class="btn-action" onclick="verifyStudent()">Login to Dashboard</button>
+        </div>
+        <div id="msg"></div>
+    </div>
+
+    <script>
+        // Use relative path or localhost since you are hosting it on the same machine
+        const API_URL = "http://localhost:5000/api"; 
+
+        function showForm(type) {
+            document.getElementById('registerForm').classList.toggle('hidden', type === 'login');
+            document.getElementById('loginForm').classList.toggle('hidden', type === 'register');
+            document.getElementById('btnReg').classList.toggle('active', type === 'register');
+            document.getElementById('btnLogin').classList.toggle('active', type === 'login');
+        }
+
+        async function fetchColleges() {
+            const dropdown = document.getElementById('collegeDropdown');
+            try {
+                const response = await fetch(`${API_URL}/public/colleges`);
+                const result = await response.json();
+                const colleges = result.data || [];
+                dropdown.innerHTML = '<option value="">-- Select Your College --</option>';
+                colleges.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = opt.textContent = c.college_name || c.name;
+                    dropdown.appendChild(opt);
+                });
+            } catch (err) {
+                dropdown.innerHTML = '<option value="">Error loading colleges</option>';
+                document.getElementById('msg').innerText = "Check if Server is running on Port 5000";
+            }
+        }
+
+        async function registerStudent() {
+            const payload = {
+                email: document.getElementById('regEmail').value,
+                name: document.getElementById('regName').value,
+                phone: document.getElementById('regPhone').value,
+                college: document.getElementById('collegeDropdown').value
+            };
+            try {
+                const res = await fetch(`${API_URL}/student/complete-registration`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if(res.ok) { alert("Registration Successful!"); showForm('login'); }
+            } catch(e) { document.getElementById('msg').innerText = "Registration failed."; }
+        }
+
+        async function verifyStudent() {
+            const email = document.getElementById('loginEmail').value;
+            try {
+                const res = await fetch(`${API_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, role: 'student' })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    localStorage.setItem('token', data.token);
+                    window.location.href = 'student_dashboard.html';
+                } else { document.getElementById('msg').innerText = data.message; }
+            } catch (err) { document.getElementById('msg').innerText = "Internal Server Error"; }
+        }
+        fetchColleges();
+    </script>
+</body>
+</html>

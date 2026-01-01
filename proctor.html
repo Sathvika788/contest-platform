@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Moderator - Live Proctoring War Room</title>
+    <style>
+        * { box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        body { margin: 0; display: flex; background: #f0f4f8; min-height: 100vh; }
+        
+        /* Unified Sidebar - Matching moderator.html */
+        .sidebar { width: 260px; background: #1a237e; color: white; padding: 20px; position: fixed; height: 100vh; }
+        .sidebar h2 { font-size: 20px; margin-bottom: 30px; border-bottom: 1px solid #3949ab; padding-bottom: 10px; }
+        .nav-item { padding: 12px; color: #c5cae9; cursor: pointer; display: block; text-decoration: none; border-radius: 8px; margin-bottom: 8px; }
+        .nav-item:hover { background: #283593; color: white; }
+        .nav-item.active { background: #283593; color: white; font-weight: bold; }
+
+        /* Main Content Area */
+        .main-content { flex: 1; padding: 40px; margin-left: 260px; }
+        h1 { color: #1a237e; margin-bottom: 30px; }
+
+        /* Card Styling - Matching moderator.html */
+        .card { background: white; padding: 32px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 32px; }
+        .card h3 { margin-top: 0; color: #1a237e; border-bottom: 2px solid #f0f4f8; padding-bottom: 10px; margin-bottom: 20px; }
+
+        /* Table Styling */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { text-align: left; padding: 16px; border-bottom: 1px solid #edf2f7; }
+        th { color: #5c6bc0; font-weight: 600; background: #f8f9fe; text-transform: uppercase; font-size: 12px; }
+        
+        /* Status Badges */
+        .badge { padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: bold; text-transform: uppercase; display: inline-block; }
+        .status-active { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+        .status-hold { background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2; }
+        .status-terminated { background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
+
+        /* Action Buttons */
+        .btn-action { padding: 8px 16px; border-radius: 6px; cursor: pointer; border: none; font-weight: 600; font-size: 13px; transition: 0.3s; margin-right: 5px; }
+        .btn-stop { background: #ffebee; color: #d32f2f; }
+        .btn-stop:hover { background: #d32f2f; color: white; }
+        .btn-hold { background: #e3f2fd; color: #1976d2; }
+        .btn-hold:hover { background: #1976d2; color: white; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h2>Moderator Portal</h2>
+        <a class="nav-item" href="moderator.html">Dashboard & Colleges</a>
+        <a class="nav-item" href="create-contest.html">Contest Creator</a>
+        <a class="nav-item active" href="create-debug-contest.html">Debug Contest Creator</a>
+        <a class="nav-item active" href="proctor.html">Live Proctoring</a>
+        <a class="nav-item" href="results.html">Results & Export</a>
+        <a class="nav-item" onclick="logout()">Logout</a>
+    </div>
+
+    <div class="main-content">
+        <h1>Live Student Monitoring</h1>
+        
+        <div class="card" style="padding: 20px; margin-bottom: 20px;">
+            <div style="display: flex; gap: 40px;">
+                <div><small style="color: #7986cb;">MONITORING MODE</small><br><strong>REAL-TIME WEBSOCKET/POLLING</strong></div>
+                <div><small style="color: #7986cb;">AUTO-REFRESH</small><br><strong>EVERY 5 SECONDS</strong></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Active Examination Room</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Student Name</th>
+                        <th>Email Address</th>
+                        <th>Exam Status</th>
+                        <th>Proctor Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="liveMonitor">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Updated to use relative path to match your working moderator.html
+        const API_URL = '/api/moderator'; 
+        const token = localStorage.getItem('token');
+
+        // Security Check
+        if (!token || localStorage.getItem('role') !== 'moderator') {
+            window.location.href = 'index.html';
+        }
+
+        async function loadStudents() {
+            try {
+                const res = await fetch(`${API_URL}/results`, { 
+                    headers: { 'Authorization': `Bearer ${token}` } 
+                });
+                
+                if (!res.ok) throw new Error("Failed to fetch students");
+                
+                const students = await res.json();
+                const tbody = document.getElementById('liveMonitor');
+                
+                if (students.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 40px; color: #94a3b8;">No students are currently taking a test.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = students.map(s => `
+                    <tr>
+                        <td><strong>${s.name}</strong></td>
+                        <td style="color: #64748b;">${s.email}</td>
+                        <td>
+                            <span class="badge status-${(s.examStatus || 'active').toLowerCase()}">
+                                ${s.examStatus || 'Active'}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn-action btn-hold" onclick="updateStatus('${s.email}', 'Hold')">Hold</button>
+                            <button class="btn-action btn-stop" onclick="updateStatus('${s.email}', 'Terminated')">Terminate</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (err) {
+                console.error("Proctoring Error:", err);
+            }
+        }
+
+        async function updateStatus(email, status) {
+            const confirmMsg = status === 'Terminated' 
+                ? "Are you sure you want to terminate this student's exam immediately?" 
+                : "Put this student's exam on hold?";
+                
+            if (!confirm(confirmMsg)) return;
+
+            try {
+                const res = await fetch(`${API_URL}/student-status`, {
+                    method: 'PATCH',
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        'Authorization': `Bearer ${token}` 
+                    },
+                    body: JSON.stringify({ email, status })
+                });
+
+                if (res.ok) {
+                    loadStudents(); // Refresh list immediately
+                } else {
+                    alert("Failed to update student status.");
+                }
+            } catch (err) {
+                alert("Error connecting to proctoring service.");
+            }
+        }
+
+        function logout() { 
+            localStorage.clear(); 
+            window.location.href = 'index.html'; 
+        }
+
+        // Initialize and setup polling
+        document.addEventListener('DOMContentLoaded', loadStudents);
+        setInterval(loadStudents, 5000); // Polling every 5 seconds for live updates
+    </script>
+</body>
+</html>
