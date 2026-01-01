@@ -130,20 +130,27 @@
         }
 
         async function fetchResults() {
-            try {
-                const res = await fetch(`${API_URL}/results`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                
-                if (!res.ok) throw new Error("Failed to fetch results");
-                
-                allStudents = await res.json();
-                updateStats(allStudents);
-                renderTable(allStudents);
-            } catch (err) {
-                console.error("Fetch Results Error:", err);
-            }
-        }
+    try {
+        // Updated endpoint to match server.js
+        const res = await fetch(`${API_URL}/all-student-results`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (!res.ok) throw new Error("Failed to fetch results");
+        
+        const response = await res.json();
+        
+        // Extract results from the 'data' wrapper provided by the server
+        allStudents = response.data?.results || [];
+        
+        updateStats(allStudents);
+        renderTable(allStudents);
+    } catch (err) {
+        console.error("Fetch Results Error:", err);
+        // Show empty state on error
+        renderTable([]);
+    }
+}
 
         function updateStats(students) {
             document.getElementById('totalParticipants').textContent = students.length;
@@ -163,34 +170,52 @@
         }
 
         function renderTable(students) {
-            const tbody = document.getElementById('resultsTable');
-            tbody.innerHTML = students.map((s, index) => `
-                <tr>
-                    <td><div class="rank-badge">${index + 1}</div></td>
-                    <td><strong>${s.name || 'N/A'}</strong></td>
-                    <td style="color: #64748b;">${s.email}</td>
-                    <td><i class="fas fa-university" style="color: #94a3b8; margin-right: 8px;"></i>${s.college || 'Individual'}</td>
-                    <td><span class="score-pill">${s.score || 0}</span></td>
-                </tr>
-            `).join('');
-        }
+    const tbody = document.getElementById('resultsTable');
+    if (students.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No results found.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = students.map((s, index) => {
+        // Fallback for different naming conventions in DynamoDB
+        const name = s.student_name || s.name || 'N/A';
+        const email = s.student_email || s.email;
+        const score = s.total_score !== undefined ? s.total_score : (s.score || 0);
+        const college = s.college || 'Individual';
+
+        return `
+            <tr>
+                <td><div class="rank-badge">${index + 1}</div></td>
+                <td><strong>${name}</strong></td>
+                <td style="color: #64748b;">${email}</td>
+                <td><i class="fas fa-university" style="color: #94a3b8; margin-right: 8px;"></i>${college}</td>
+                <td><span class="score-pill">${score}</span></td>
+            </tr>
+        `;
+    }).join('');
+}
 
         function filterTable() {
-            const term = document.getElementById('searchInput').value.toLowerCase();
-            const sort = document.getElementById('sortSelect').value;
+    const term = document.getElementById('searchInput').value.toLowerCase();
+    const sort = document.getElementById('sortSelect').value;
 
-            let filtered = allStudents.filter(s => 
-                (s.name && s.name.toLowerCase().includes(term)) || 
-                s.email.toLowerCase().includes(term) || 
-                (s.college && s.college.toLowerCase().includes(term))
-            );
+    let filtered = allStudents.filter(s => {
+        const name = (s.student_name || s.name || "").toLowerCase();
+        const email = (s.student_email || s.email || "").toLowerCase();
+        const college = (s.college || "").toLowerCase();
+        return name.includes(term) || email.includes(term) || college.includes(term);
+    });
 
-            if (sort === 'score-desc') filtered.sort((a, b) => b.score - a.score);
-            else if (sort === 'score-asc') filtered.sort((a, b) => a.score - b.score);
-            else if (sort === 'name') filtered.sort((a, b) => a.name.localeCompare(b.name));
+    if (sort === 'score-desc') {
+        filtered.sort((a, b) => (b.total_score || b.score || 0) - (a.total_score || a.score || 0));
+    } else if (sort === 'score-asc') {
+        filtered.sort((a, b) => (a.total_score || a.score || 0) - (b.total_score || b.score || 0));
+    } else if (sort === 'name') {
+        filtered.sort((a, b) => (a.student_name || a.name || "").localeCompare(b.student_name || b.name || ""));
+    }
 
-            renderTable(filtered);
-        }
+    renderTable(filtered);
+}
 
         function exportToCSV() {
             const rows = [["Rank", "Student Name", "Email Address", "Institution", "Final Score"]];
