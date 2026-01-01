@@ -66,10 +66,6 @@
 
         .problem-list { flex: 1; overflow-y: auto; padding: 15px; }
 
-        /* Custom Scrollbar */
-        .problem-list::-webkit-scrollbar { width: 6px; }
-        .problem-list::-webkit-scrollbar-thumb { background: var(--slate-700); border-radius: 10px; }
-
         .problem-item {
             padding: 18px;
             margin-bottom: 12px;
@@ -119,48 +115,62 @@
             display: flex;
             padding: 20px;
             gap: 20px;
-            overflow: hidden;
+            overflow: hidden; /* Fix: Keeps child scrollbars active */
         }
 
         .problem-details {
             flex: 1;
-            overflow-y: auto;
+            overflow-y: auto; /* Fix: Enables vertical scrolling for descriptions */
             background: white;
             padding: 35px;
             border-radius: 20px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            max-height: 100%;
         }
 
-        /* --- Editor --- */
-        .editor-container {
-            flex: 1.3;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            overflow: hidden;
-        }
+        /* Custom scrollbar for Details Area */
+        .problem-details::-webkit-scrollbar { width: 8px; }
+        .problem-details::-webkit-scrollbar-track { background: #f1f5f9; }
+        .problem-details::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 
-        .CodeMirror {
-            flex: 1;
-            height: auto; 
-            border-radius: 15px;
-            font-size: 15px;
-            font-family: 'Fira Code', monospace;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        }
+        /* --- Updated Editor Column Styling --- */
+.editor-container {
+    flex: 1.3;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    overflow-y: auto; /* Enable vertical scrolling for the whole column */
+    padding-right: 10px; /* Space for the scrollbar */
+    max-height: 100%;
+}
 
-        .output-box {
-            background: var(--slate-900);
-            color: #e2e8f0;
-            padding: 20px;
-            border-radius: 0 0 15px 15px;
-            font-family: 'Fira Code', monospace;
-            height: 160px;
-            overflow-y: auto;
-            border: 2px solid var(--slate-800);
-            font-size: 13px;
-        }
+/* Fix CodeMirror height so it doesn't push buttons off-screen */
+.CodeMirror {
+    height: 450px !important; /* Fixed height to leave room for buttons/console */
+    border-radius: 15px;
+    font-size: 15px;
+    font-family: 'Fira Code', monospace;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    flex-shrink: 0; /* Prevent the editor from collapsing */
+}
 
+/* Custom Scrollbar for the Editor Column */
+.editor-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.editor-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.editor-container::-webkit-scrollbar-thumb {
+    background: var(--slate-700);
+    border-radius: 10px;
+}
+
+.editor-container::-webkit-scrollbar-thumb:hover {
+    background: var(--primary);
+}
         .controls { display: flex; gap: 12px; }
         .btn {
             padding: 14px 28px;
@@ -268,7 +278,15 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/clike/clike.min.js"></script>
     
     <script>
-        const API_URL = "http://3.108.67.225:5000/api";
+        // Detect if we are running locally or on the deployed server
+const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+// Set API_URL dynamically
+const API_URL = isLocal 
+    ? "http://localhost:5000/api" 
+    : "http://3.108.67.225:5000/api";
+
+console.log("Connected to API at:", API_URL);
         const urlParams = new URLSearchParams(window.location.search);
         const contestId = urlParams.get('id');
         const token = localStorage.getItem('token');
@@ -333,7 +351,7 @@
             const list = document.getElementById('problemList');
             list.innerHTML = contestData.problems.map((p, i) => `
                 <div class="problem-item ${selectedProblemIndex === i ? 'active' : ''}" onclick="selectProblem(${i})">
-                    <span class="status-dot ${p.student_submission?.passed ? 'status-passed' : 'status-pending'}"></span>
+                    <span class="status-dot ${p.passed ? 'status-passed' : 'status-pending'}"></span>
                     <div style="flex:1">
                         <div style="font-weight:700; font-size:14px;">${p.title}</div>
                         <div style="font-size:11px; opacity:0.8;">Score: ${p.score || 20}</div>
@@ -342,12 +360,100 @@
             `).join('');
         }
 
+        // Fix: Connects IDE workspace to server-side testing logic
         async function runCode() {
-            document.getElementById('outputBox').innerText = "Compiling and running sample test cases...";
+    const code = editor.getValue();
+    const language = document.getElementById('langSelect').value;
+    const outputBox = document.getElementById('outputBox');
+    
+    if (!code.trim()) return alert("Please write some code first!");
+    
+    // Provide immediate visual feedback
+    outputBox.innerHTML = '<div class="loading"></div> Running sample tests...';
+    
+    try {
+        const response = await fetch(`${API_URL}/student/test-code`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` 
+            },
+            body: JSON.stringify({
+                contest_id: contestId,
+                problem_index: selectedProblemIndex,
+                code: code,
+                language: language
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // Clear the "Running..." message and show actual data
+            let displayHtml = `<div style="color: #6366f1; font-weight: 800; margin-bottom: 10px;">${result.data.message}</div>`;
+            
+            if (result.data.sample_results && result.data.sample_results.length > 0) {
+                result.data.sample_results.forEach(r => {
+                    const statusColor = r.passed ? '#10b981' : '#ef4444';
+                    const statusIcon = r.passed ? '✅' : '❌';
+                    
+                    displayHtml += `
+                        <div style="border-left: 4px solid ${statusColor}; padding-left: 10px; margin-bottom: 15px; background: rgba(255,255,255,0.05);">
+                            <div style="font-weight: bold; color: ${statusColor}">Test Case ${r.test_case}: ${r.passed ? 'PASSED' : 'FAILED'} ${statusIcon}</div>
+                            <div style="font-size: 12px; margin-top: 5px;">
+                                <strong>Input:</strong> <span style="color: #94a3b8">${r.input || 'N/A'}</span><br>
+                                <strong>Output:</strong> <span style="color: ${statusColor}">${r.output || '(no output)'}</span><br>
+                                <strong>Expected:</strong> <span style="color: #10b981">${r.expected}</span>
+                            </div>
+                            ${r.error ? `<div style="color: #f87171; font-size: 11px; margin-top: 5px;">Error: ${r.error}</div>` : ''}
+                        </div>
+                    `;
+                });
+            } else {
+                displayHtml += `<div style="color: #ef4444;">No sample test cases found for this problem.</div>`;
+            }
+            outputBox.innerHTML = displayHtml;
+        } else {
+            outputBox.innerHTML = `<div style="color: #ef4444;">Execution Error: ${result.message}</div>`;
         }
-
+    } catch (e) {
+        outputBox.innerHTML = `<div style="color: #ef4444;">Server Connection Error. Ensure the backend is running at ${API_URL}</div>`;
+        console.error("Run Code Error:", e);
+    }
+}
+        // Fix: Connects Submit button to server-side grading logic
         async function submitSolution() {
-            alert("Submitting solution to judge server...");
+            const code = editor.getValue();
+            const language = document.getElementById('langSelect').value;
+            
+            if (!code.trim()) return alert("Code cannot be empty.");
+            if (!confirm("Submit this solution for final grading?")) return;
+
+            try {
+                const response = await fetch(`${API_URL}/student/submit-solution`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}` 
+                    },
+                    body: JSON.stringify({
+                        contest_id: contestId,
+                        problem_index: selectedProblemIndex,
+                        code: code,
+                        language: language
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    alert(`Result: ${result.data.message}\nScore: ${result.data.score}/${result.data.max_score}`);
+                    loadContest(); 
+                } else {
+                    alert("Submission error: " + result.message);
+                }
+            } catch (e) {
+                alert("Critical error during submission.");
+            }
         }
 
         window.onload = init;
