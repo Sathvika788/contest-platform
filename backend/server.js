@@ -345,8 +345,6 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/moderator/contest/:id/results', verifyToken, async (req, res) => {
     try {
         const contestId = req.params.id;
-        
-        // FIX: Use Scan with a Filter if the GSI (Index) is not confirmed to exist
         const { Items } = await client.send(new ScanCommand({
             TableName: "StudentResults",
             FilterExpression: "contest_id = :cid",
@@ -354,27 +352,9 @@ app.get('/api/moderator/contest/:id/results', verifyToken, async (req, res) => {
         }));
 
         const results = (Items || []).map(i => unmarshall(i));
-        
-        // Fetch contest details for the header
-        const contestData = await client.send(new GetItemCommand({
-            TableName: "Contests",
-            Key: ddbMarshall({ contest_id: contestId })
-        }));
-        const contest = unmarshall(contestData.Item || {});
-
-        res.json({
-            success: true,
-            data: {
-                contest: { 
-                    name: contest.name || "Contest Results", 
-                    total_score: contest.metadata?.total_score || 100 
-                },
-                results: results
-            }
-        });
+        res.json({ success: true, data: { results } });
     } catch (err) {
-        console.error("Fetch Results Error:", err);
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: "Error fetching scores" });
     }
 });
 
@@ -916,35 +896,16 @@ app.post('/api/moderator/upload-document', verifyToken, async (req, res) => {
 });
 
 // Process document to extract problems (using AI)
+// Process document to extract problems (using AI)
 app.post('/api/moderator/process-document', verifyToken, async (req, res) => {
     try {
-        const { documentId, documentContent, language, difficulty } = req.body;
+        const { documentContent, language, difficulty } = req.body;
         
-        if (!documentContent && !documentId) {
+        if (!documentContent) {
             return res.status(400).json({
                 success: false,
-                message: "Document content or ID is required"
+                message: "Document content is required"
             });
-        }
-        
-        let content = documentContent;
-        
-        // If documentId is provided, fetch the document
-        if (documentId && !documentContent) {
-            const { Item } = await client.send(new GetItemCommand({
-                TableName: "Documents",
-                Key: ddbMarshall({ document_id: documentId })
-            }));
-            
-            if (!Item) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Document not found"
-                });
-            }
-            
-            const document = unmarshall(Item);
-            content = document.content;
         }
         
         if (!process.env.GROQ_API_KEY) {
@@ -956,46 +917,41 @@ app.post('/api/moderator/process-document', verifyToken, async (req, res) => {
         
         console.log("Processing document with AI...");
         
-        // Use AI to extract problems from document
         const chatCompletion = await groq.chat.completions.create({
             messages: [
                 {
                     role: "system",
-                    content: `You are a programming contest problem extractor. Extract programming problems from the given document.
+                    content: `You are a programming contest problem extractor. 
+                    Extract programming problems from the provided text.
                     
                     Return ONLY a valid JSON object with a key "problems" containing an array of problem objects.
                     
-                    Each problem object must have:
-                    - title (string) - concise title
-                    - description (string) - detailed problem statement
-                    - input_format (string) - how input is provided
-                    - output_format (string) - expected output format
-                    - constraints (string) - time/space constraints
-                    - sample_input (string) - example input
-                    - sample_output (string) - expected output for sample
-                    - difficulty (string: "Easy", "Medium", "Hard")
-                    - score (number between 10-50)
-                    - category (string: "Arrays", "Strings", "Dynamic Programming", etc.)
+                    CRITICAL: Each problem MUST contain a "test_cases" array with EXACTLY 7 objects:
+                    - 2 objects where "is_sample": true
+                    - 5 objects where "is_sample": false
                     
-                    Extract as many valid programming problems as you can from the document.
-                    Focus on logical, algorithmic, and coding problems.`
+                    Each problem object must have:
+                    - title (string)
+                    - description (string)
+                    - score (number, default 20)
+                    - difficulty (string: "Easy", "Medium", "Hard")
+                    - test_cases (array of 7 objects with "input", "output", and "is_sample" boolean)
+                    
+                    Ensure the extracted problems are logical and algorithmic.`
                 },
                 {
                     role: "user",
-                    content: `Extract programming problems from this document content:
+                    content: `Extract programming problems from this content:
                     
-                    ${content.substring(0, 8000)}  // Limit content size
+                    ${documentContent.substring(0, 8000)}
                     
-                    Language focus: ${language || 'general'}
-                    Difficulty level: ${difficulty || 'Medium'}
-                    
-                    Return JSON with "problems" array.`
+                    Language focus: ${language || 'python'}
+                    Difficulty level: ${difficulty || 'Medium'}`
                 }
             ],
             model: "llama-3.3-70b-versatile",
             response_format: { type: "json_object" },
-            temperature: 0.3,
-            max_tokens: 4000
+            temperature: 0.3
         });
         
         const text = chatCompletion.choices[0]?.message?.content || "";
@@ -1004,24 +960,18 @@ app.post('/api/moderator/process-document', verifyToken, async (req, res) => {
             const parsed = JSON.parse(text);
             
             if (parsed.problems && Array.isArray(parsed.problems)) {
-                // Enhance problems with additional fields
-                const enhancedProblems = parsed.problems.map((problem, index) => ({
-                    ...problem,
-                    index: index,
-                    id: `prob_${crypto.randomUUID().substring(0, 8)}`,
-                    extracted_from_document: true,
-                    language: language || 'python',
-                    time_limit: difficulty === 'Hard' ? 3 : difficulty === 'Medium' ? 2 : 1,
-                    memory_limit: 256
+                // Ensure every problem has the required properties for your frontend
+                const enhancedProblems = parsed.problems.map(prob => ({
+                    ...prob,
+                    score: prob.score || 20,
+                    difficulty: prob.difficulty || difficulty || "Medium"
                 }));
                 
                 res.json({
                     success: true,
                     data: {
                         problems: enhancedProblems,
-                        count: enhancedProblems.length,
-                        documentId: documentId,
-                        summary: `Extracted ${enhancedProblems.length} problems from document`
+                        count: enhancedProblems.length
                     }
                 });
             } else {
@@ -1031,8 +981,7 @@ app.post('/api/moderator/process-document', verifyToken, async (req, res) => {
             console.error("JSON Parse Error:", parseErr);
             res.status(500).json({
                 success: false,
-                message: "Failed to parse AI response",
-                raw_response: text.substring(0, 500)
+                message: "Failed to parse AI response"
             });
         }
         
@@ -1045,7 +994,6 @@ app.post('/api/moderator/process-document', verifyToken, async (req, res) => {
         });
     }
 });
-
 // Extract debugging problems from document
 app.post('/api/moderator/process-debug-document', verifyToken, async (req, res) => {
     try {
@@ -1650,60 +1598,34 @@ app.delete('/api/moderator/contest/:id', verifyToken, async (req, res) => {
 // ====================================================
 // FIXED CREATE CONTEST ROUTE
 // ====================================================
+// POST /api/moderator/create-contest
 app.post('/api/moderator/create-contest', verifyToken, async (req, res) => {
     try {
-        let { 
-            name, description, target_type, target, 
-            method, problems, time_limit, language, 
-            processedId, documentId, aiTopic, aiDifficulty
-        } = req.body;
-        
+        const { name, description, problems, time_limit, language } = req.body;
         const contestId = `contest_${crypto.randomUUID().replace(/-/g, '').substring(0, 12)}`;
-        let finalProblems = problems || [];
-        
-        // Handle Document Mode retrieval
-        if (method === 'document') {
-            if (processedId) {
-                const { Item } = await client.send(new GetItemCommand({
-                    TableName: "ProcessedDocuments",
-                    Key: ddbMarshall({ processed_id: processedId })
-                }));
-                if (Item) {
-                    const doc = unmarshall(Item);
-                    finalProblems = doc.problems || [];
-                    name = name || doc.contest_name;
-                    language = language || doc.language;
-                }
-            } else if (documentId) {
-                const processResponse = await processDocumentContent(documentId, language, aiDifficulty);
-                finalProblems = processResponse.problems || [];
+
+        // Validation: Ensure each problem has at least 2 samples and 5 hidden cases
+        for (const prob of problems) {
+            const samples = prob.test_cases.filter(tc => tc.is_sample).length;
+            const hidden = prob.test_cases.filter(tc => !tc.is_sample).length;
+            if (samples < 2 || hidden < 5) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `Problem "${prob.title}" requires 2 sample and 5 hidden test cases.` 
+                });
             }
-        } 
-        // Handle AI Method (If problems weren't already generated on frontend)
-        else if (method === 'ai' && finalProblems.length === 0) {
-            finalProblems = await generateContestContent(aiTopic, aiDifficulty || 'Medium', language || 'python', 5);
         }
 
-        if (finalProblems.length === 0) {
-            return res.status(400).json({ success: false, message: "No problems found to create the contest." });
-        }
-
-        const totalScore = finalProblems.reduce((sum, p) => sum + (parseInt(p.score) || 20), 0);
+        const totalScore = problems.reduce((sum, p) => sum + (parseInt(p.score) || 20), 0);
 
         const contestData = {
             contest_id: contestId,
             name: name || "Untitled Contest",
-            description: description || "",
-            type: "regular",
-            language: language || "python",
-            target_type: target_type || "public",
-            target: target || "",
+            problems: problems,
             created_by: req.user.email,
             created_at: new Date().toISOString(),
             status: "active",
-            problems: finalProblems,
             metadata: {
-                total_problems: finalProblems.length,
                 total_score: totalScore,
                 time_limit: parseInt(time_limit) || 120
             }
@@ -1714,16 +1636,9 @@ app.post('/api/moderator/create-contest', verifyToken, async (req, res) => {
             Item: ddbMarshall(contestData)
         }));
 
-        // CRITICAL: Send success response to stop the frontend spinner
-        res.status(201).json({
-            success: true,
-            message: "Contest created successfully",
-            data: { contestId: contestId, problemsCount: finalProblems.length }
-        });
-        
+        res.status(201).json({ success: true, contestId: contestId });
     } catch (err) {
-        console.error("Create Contest Error:", err);
-        res.status(500).json({ success: false, message: "Server error", error: err.message });
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
@@ -2309,182 +2224,29 @@ abcabcbb
 });
 
 // 3. Process Document Route
+// POST /api/moderator/process-document
 app.post('/api/moderator/process-document', verifyToken, async (req, res) => {
     try {
         const { documentContent, language, difficulty } = req.body;
         
-        if (!documentContent) {
-            return res.status(400).json({
-                success: false,
-                message: "Document content is required"
-            });
-        }
-        
-        // Check if AI is configured
-        if (!process.env.GROQ_API_KEY) {
-            return res.status(500).json({
-                success: false,
-                message: "AI service is not configured. Please check your GROQ_API_KEY in .env file."
-            });
-        }
-        
-        console.log("Processing document with AI...");
-        
-        // Use AI to extract problems
         const chatCompletion = await groq.chat.completions.create({
             messages: [
                 {
                     role: "system",
-                    content: `You are a programming contest problem extractor. Extract programming problems from the given document.
-                    
-                    Return ONLY a valid JSON object with a key "problems" containing an array of problem objects.
-                    
-                    Each problem object must have:
-                    - title (string) - concise title
-                    - description (string) - detailed problem statement
-                    - input_format (string) - how input is provided
-                    - output_format (string) - expected output format
-                    - constraints (string) - time/space constraints (optional)
-                    - sample_input (string) - example input
-                    - sample_output (string) - expected output for sample
-                    - difficulty (string: "Easy", "Medium", "Hard")
-                    - score (number between 10-50)
-                    - category (string: "Arrays", "Strings", "Dynamic Programming", etc.)
-                    
-                    Extract as many valid programming problems as you can from the document.
-                    Focus on logical, algorithmic, and coding problems.`
+                    content: "Extract programming problems. Return JSON with 'problems' array. Each problem must have 2 sample_inputs/outputs and 5 hidden_inputs/outputs."
                 },
                 {
                     role: "user",
-                    content: `Extract programming problems from this document content:
-                    
-                    ${documentContent.substring(0, 6000)}
-                    
-                    Language focus: ${language || 'general'}
-                    Difficulty level: ${difficulty || 'Medium'}
-                    
-                    Return JSON with "problems" array.`
+                    content: `Extract from: ${documentContent.substring(0, 6000)}`
                 }
             ],
             model: "llama-3.3-70b-versatile",
-            response_format: { type: "json_object" },
-            temperature: 0.3,
-            max_tokens: 4000
+            response_format: { type: "json_object" }
         });
-        
-        const text = chatCompletion.choices[0]?.message?.content || "";
-        console.log("AI Response received (first 500 chars):", text.substring(0, 500));
-        
-        try {
-            const parsed = JSON.parse(text);
-            
-            if (parsed.problems && Array.isArray(parsed.problems)) {
-                // Enhance problems with additional fields
-                const enhancedProblems = parsed.problems.map((problem, index) => ({
-                    ...problem,
-                    index: index,
-                    id: `prob_${crypto.randomUUID().substring(0, 8)}`,
-                    extracted_from_document: true,
-                    language: language || 'python',
-                    time_limit: difficulty === 'Hard' ? 3 : difficulty === 'Medium' ? 2 : 1,
-                    memory_limit: 256,
-                    // Ensure required fields exist
-                    title: problem.title || `Problem ${index + 1}`,
-                    description: problem.description || "No description provided",
-                    input_format: problem.input_format || "Standard input",
-                    output_format: problem.output_format || "Standard output",
-                    score: problem.score || 20,
-                    difficulty: problem.difficulty || 'Medium',
-                    sample_input: problem.sample_input || "",
-                    sample_output: problem.sample_output || "",
-                    constraints: problem.constraints || "None"
-                }));
-                
-                res.json({
-                    success: true,
-                    data: {
-                        problems: enhancedProblems,
-                        count: enhancedProblems.length,
-                        summary: `Extracted ${enhancedProblems.length} problems from document`
-                    }
-                });
-                
-            } else {
-                // Try to find any array in the response
-                let problemsArray = [];
-                if (Array.isArray(parsed)) {
-                    problemsArray = parsed;
-                } else if (parsed.data && Array.isArray(parsed.data)) {
-                    problemsArray = parsed.data;
-                }
-                
-                if (problemsArray.length > 0) {
-                    const enhancedProblems = problemsArray.map((problem, index) => ({
-                        ...problem,
-                        index: index,
-                        id: `prob_${crypto.randomUUID().substring(0, 8)}`,
-                        extracted_from_document: true,
-                        language: language || 'python',
-                        time_limit: difficulty === 'Hard' ? 3 : difficulty === 'Medium' ? 2 : 1,
-                        memory_limit: 256
-                    }));
-                    
-                    res.json({
-                        success: true,
-                        data: {
-                            problems: enhancedProblems,
-                            count: enhancedProblems.length,
-                            summary: `Extracted ${enhancedProblems.length} problems from document`
-                        }
-                    });
-                } else {
-                    // Fallback: Return sample problems if AI fails
-                    console.log("AI returned unexpected format, falling back to sample problems");
-                    const sampleProblems = generateSampleProblems(language, difficulty);
-                    
-                    res.json({
-                        success: true,
-                        data: {
-                            problems: sampleProblems,
-                            count: sampleProblems.length,
-                            summary: `Extracted ${sampleProblems.length} sample problems (AI fallback)`
-                        }
-                    });
-                }
-            }
-            
-        } catch (parseErr) {
-            console.error("JSON Parse Error:", parseErr);
-            
-            // Fallback: Return sample problems
-            const sampleProblems = generateSampleProblems(language, difficulty);
-            
-            res.json({
-                success: true,
-                data: {
-                    problems: sampleProblems,
-                    count: sampleProblems.length,
-                    summary: `Extracted ${sampleProblems.length} sample problems (fallback mode)`,
-                    note: "AI parsing failed, showing sample problems instead"
-                }
-            });
-        }
-        
+
+        res.json({ success: true, data: JSON.parse(chatCompletion.choices[0].message.content) });
     } catch (err) {
-        console.error("Process Document Error:", err);
-        
-        // Even if AI fails, return sample problems
-        const sampleProblems = generateSampleProblems(req.body?.language, req.body?.difficulty);
-        
-        res.json({
-            success: true,
-            data: {
-                problems: sampleProblems,
-                count: sampleProblems.length,
-                summary: `Extracted ${sampleProblems.length} sample problems (error fallback)`,
-                error: err.message
-            }
-        });
+        res.status(500).json({ success: false, message: "AI processing failed" });
     }
 });
 
@@ -4743,7 +4505,7 @@ app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
     try {
         const { contest_id, problem_index, code, language, language_id } = req.body;
         
-        // 2. Enhanced Validation
+        // 1. Validation
         if (!contest_id || problem_index === undefined || !code) {
             return res.status(400).json({ 
                 success: false, 
@@ -4751,350 +4513,137 @@ app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
             });
         }
         
-        // Determine language (support both language and language_id)
+        // Language Mapping
         let actualLanguage = language;
         if (!actualLanguage && language_id) {
-            // Map language_id to language string
-            const idMap = {
-                '71': 'python',
-                '54': 'cpp', 
-                '50': 'c',
-                '62': 'java'
-            };
+            const idMap = { '71': 'python', '54': 'cpp', '50': 'c', '62': 'java' };
             actualLanguage = idMap[language_id] || 'python';
         }
-        
-        if (!actualLanguage) {
-            actualLanguage = 'python'; // Default
-        }
-        
-        // Validate problem_index is a number
+        actualLanguage = actualLanguage || 'python';
+
         const problemIndex = parseInt(problem_index);
-        if (isNaN(problemIndex)) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Invalid problem index" 
-            });
-        }
         
-        // 3. Get contest and problem from DynamoDB
+        // 2. Database Retrieval
         const { Item } = await client.send(new GetItemCommand({
             TableName: "Contests",
             Key: ddbMarshall({ contest_id: contest_id })
         }));
         
-        if (!Item) {
-            return res.status(404).json({ 
-                success: false, 
-                message: "Contest not found" 
-            });
-        }
+        if (!Item) return res.status(404).json({ success: false, message: "Contest not found" });
         
         const contest = unmarshall(Item);
-        if (contest.status !== 'active') {
-            return res.status(400).json({ 
-                success: false, 
-                message: "This contest is no longer active" 
-            });
-        }
-        
-        // Safely access problems array
-        if (!contest.problems || !Array.isArray(contest.problems)) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Contest has no problems" 
-            });
-        }
-        
-        if (problemIndex < 0 || problemIndex >= contest.problems.length) {
-            return res.status(404).json({ 
-                success: false, 
-                message: "Problem not found" 
-            });
-        }
-        
         const problem = contest.problems[problemIndex];
-        if (!problem) {
-            return res.status(404).json({ 
-                success: false, 
-                message: "Problem not found" 
-            });
+
+        if (!problem || !Array.isArray(problem.test_cases)) {
+            return res.status(400).json({ success: false, message: "Problem or test cases not found" });
         }
+
+        // 3. Separate Test Cases (2 Sample, 5 Hidden)
+        const sampleTestCases = problem.test_cases.filter(tc => tc.is_sample === true);
+        const hiddenTestCases = problem.test_cases.filter(tc => !tc.is_sample);
         
-        // 4. Test Execution (Sample and Hidden Test Cases)
-        const testCases = problem.test_cases || [];
-        
-        if (testCases.length === 0) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "No test cases found for this problem" 
-            });
-        }
-        
-        const sampleTestCases = testCases.filter(tc => tc.is_sample === true);
-        const hiddenTestCases = testCases.filter(tc => !tc.is_sample || tc.is_sample === false);
-        
-        console.log(`Test cases found: ${testCases.length} total, ${sampleTestCases.length} sample, ${hiddenTestCases.length} hidden`);
-        console.log(`Language: ${actualLanguage}, Code length: ${code.length}`);
-        
-        // Map language to compiler service format
         const languageMap = {
-            'python': 'python',
-            'python3': 'python',
-            'py': 'python',
-            'cpp': 'cpp',
-            'c++': 'cpp',
-            'c': 'c',
-            'java': 'java',
-            'javascript': 'javascript',
-            'js': 'javascript'
+            'python': 'python', 'python3': 'python', 'py': 'python',
+            'cpp': 'cpp', 'c++': 'cpp', 'c': 'c', 'java': 'java'
         };
-        
         const compilerLanguage = languageMap[actualLanguage.toLowerCase()] || 'python';
-        console.log(`Language mapping: ${actualLanguage} -> ${compilerLanguage}`);
-        
+
         let sampleResults = [];
-        let compileError = null;
-        
-        // Execute sample test cases with detailed reporting
+
+        // 4. Execute 2 Sample Test Cases
         for (let i = 0; i < sampleTestCases.length; i++) {
             const testCase = sampleTestCases[i];
-            try {
-                console.log(`\n=== Executing sample test ${i + 1} ===`);
-                console.log(`Input: "${testCase.input || 'NO INPUT'}"`);
-                console.log(`Expected: "${testCase.output || 'NO OUTPUT'}"`);
-                
-                const execResponse = await fetch('http://65.2.104.225:8000/api/compile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        language: compilerLanguage, 
-                        code: code,
-                        stdin: testCase.input || ""
-                    }),
-                    timeout: 15000
-                });
-                
-                if (!execResponse.ok) {
-                    const errorText = await execResponse.text();
-                    console.error(`Compiler service error: ${execResponse.status}`, errorText);
-                    compileError = `Compiler service error: ${execResponse.status}`;
-                    
-                    sampleResults.push({
-                        test_case: i + 1,
-                        input: testCase.input || "",
-                        output: "",
-                        expected: testCase.output || "",
-                        passed: false,
-                        error: `HTTP Error ${execResponse.status}: ${errorText}`,
-                        execution_time: 0
-                    });
-                    continue;
-                }
-                
-                const execResult = await execResponse.json();
-                console.log('Raw compiler response:', JSON.stringify(execResult));
-                
-                // Extract output from response - try multiple fields
-                let output = "";
-                let error = "";
-                
-                // Try output field first
-                if (execResult.output !== undefined && execResult.output !== null) {
-                    output = String(execResult.output);
-                }
-                // Try stdout field
-                else if (execResult.stdout !== undefined && execResult.stdout !== null) {
-                    output = String(execResult.stdout);
-                }
-                // Try compile_output (Judge0 format)
-                else if (execResult.compile_output !== undefined && execResult.compile_output !== null) {
-                    output = String(execResult.compile_output);
-                }
-                
-                // Extract error
-                if (execResult.stderr !== undefined && execResult.stderr !== null && execResult.stderr !== "") {
-                    error = String(execResult.stderr);
-                } else if (execResult.error !== undefined && execResult.error !== null && execResult.error !== "") {
-                    error = String(execResult.error);
-                } else if (execResult.compile_output !== undefined && execResult.compile_output !== null && 
-                          execResult.compile_output !== "" && !output) {
-                    error = String(execResult.compile_output);
-                }
-                
-                // Clean up output
-                output = output.replace(/\r\n/g, '\n').trim();
-                const expected = (testCase.output || '').trim().replace(/\r\n/g, '\n');
-                const passed = output === expected;
-                
-                sampleResults.push({
-                    test_case: i + 1,
-                    input: testCase.input || "",
-                    output: output,
-                    expected: expected,
-                    passed: passed,
-                    error: error,
-                    execution_time: execResult.time || 0,
-                    raw_response: execResult // For debugging
-                });
-                
-                console.log(`Result: ${passed ? '✓ PASSED' : '✗ FAILED'}`);
-                console.log(`Output: "${output}"`);
-                console.log(`Error: "${error}"`);
-                console.log(`=== End test ${i + 1} ===\n`);
-                
-            } catch (execErr) {
-                console.error(`Sample test ${i + 1} execution error:`, execErr.message);
-                sampleResults.push({
-                    test_case: i + 1,
-                    input: testCase.input || "",
-                    output: "",
-                    expected: testCase.output || "",
-                    passed: false,
-                    error: `Execution error: ${execErr.message}`,
-                    execution_time: 0
-                });
+            const execResult = await runOnCompiler(compilerLanguage, code, testCase.input);
+            
+            const normalizedOutput = execResult.output.replace(/\r\n/g, '\n').trim();
+            const normalizedExpected = (testCase.output || '').trim().replace(/\r\n/g, '\n');
+            
+            sampleResults.push({
+                test_case: i + 1,
+                input: testCase.input,
+                output: normalizedOutput,
+                expected: normalizedExpected,
+                passed: normalizedOutput === normalizedExpected,
+                error: execResult.error
+            });
+        }
+
+        // 5. Execute 5 Hidden Test Cases for Scoring
+        let totalPassedHidden = 0;
+        for (const testCase of hiddenTestCases) {
+            const execResult = await runOnCompiler(compilerLanguage, code, testCase.input);
+            const normalizedOutput = execResult.output.replace(/\r\n/g, '\n').trim();
+            const normalizedExpected = (testCase.output || '').trim().replace(/\r\n/g, '\n');
+            
+            if (normalizedOutput === normalizedExpected) {
+                totalPassedHidden++;
             }
         }
+
+        // 6. Score Calculation
+        const hiddenCount = hiddenTestCases.length || 1; 
+        const passRate = totalPassedHidden / hiddenCount;
+        const finalScore = Math.round(passRate * (problem.score || 20));
         
-        let totalPassed = 0;
-        const hiddenTestCount = hiddenTestCases.length;
-        
-        // Execute hidden test cases with better error handling
-        for (let i = 0; i < hiddenTestCount; i++) {
-            const testCase = hiddenTestCases[i];
-            try {
-                console.log(`Executing hidden test ${i + 1}...`);
-                
-                const execResponse = await fetch('http://65.2.104.225:8000/api/compile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        language: compilerLanguage, 
-                        code: code,
-                        stdin: testCase.input || ""
-                    }),
-                    timeout: 15000
-                });
-                
-                if (!execResponse.ok) {
-                    console.error(`Hidden test ${i + 1} - Compiler service error: ${execResponse.status}`);
-                    continue;
-                }
-                
-                const execResult = await execResponse.json();
-                
-                // Extract output
-                let output = "";
-                if (execResult.output !== undefined && execResult.output !== null) {
-                    output = String(execResult.output);
-                } else if (execResult.stdout !== undefined && execResult.stdout !== null) {
-                    output = String(execResult.stdout);
-                }
-                
-                output = output.replace(/\r\n/g, '\n').trim();
-                const expected = (testCase.output || '').trim().replace(/\r\n/g, '\n');
-                
-                if (output === expected) {
-                    totalPassed++;
-                    console.log(`Hidden test ${i + 1}: ✓ PASSED`);
-                } else {
-                    console.log(`Hidden test ${i + 1}: ✗ FAILED (output="${output}", expected="${expected}")`);
-                }
-                
-            } catch (execErr) {
-                console.error(`Hidden test ${i + 1} execution error:`, execErr.message);
-            }
-        }
-        
-        // 5. Score Calculation
-        const passRate = hiddenTestCount > 0 ? totalPassed / hiddenTestCount : 1;
-        const score = Math.round(passRate * (problem.score || 20));
-        const allPassed = passRate === 1;
-        
-        console.log(`\n=== Final Score Calculation ===`);
-        console.log(`Hidden tests: ${totalPassed}/${hiddenTestCount} passed = ${passRate * 100}%`);
-        console.log(`Score: ${score} points (max: ${problem.score || 20})`);
-        console.log(`All tests passed: ${allPassed ? 'YES' : 'NO'}`);
-        
-        const submissionId = `sub_${crypto.randomUUID().replace(/-/g, '').substring(0, 12)}`;
+        const submissionId = `sub_${crypto.randomUUID().substring(0, 8)}`;
         const submission = {
             submission_id: submissionId,
             contest_id: contest_id,
             problem_index: problemIndex,
             student_email: req.user.email,
-            student_name: req.user.name || "Student",
             code: code,
-            language: actualLanguage,
-            passed: allPassed,
-            score: score,
+            passed: totalPassedHidden === hiddenCount,
+            score: finalScore,
             submitted_at: new Date().toISOString(),
-            problem_title: problem.title || `Problem ${problemIndex + 1}`,
             sample_results: sampleResults
         };
-        
-        // 6. Save Submission record
+
+        // 7. Save and Update Results
         await client.send(new PutItemCommand({
             TableName: "StudentSubmissions",
             Item: ddbMarshall(submission)
         }));
         
-        // 7. Update student results
         await updateRegularStudentResults(req.user.email, contest_id, contest, submission);
-       
-        // 8. Check compilation errors
-        const hasCompileError = sampleResults.some(result => 
-            result.error && result.error.length > 0 && !result.output
-        );
-        
-        const hasRuntimeError = sampleResults.some(result => 
-            result.error && result.error.length > 0 && result.output
-        );
-        
-        // 9. Prepare response message
-        let message = "";
-        if (hasCompileError) {
-            const errorMsg = sampleResults[0]?.error || "Compilation error";
-            message = `✗ Compilation Error: ${errorMsg.substring(0, 100)}${errorMsg.length > 100 ? '...' : ''}`;
-        } else if (hasRuntimeError) {
-            message = `✗ Runtime Error (check sample tests)`;
-        } else if (allPassed) {
-            message = `✓ All tests passed!`;
-        } else {
-            message = `✗ Passed ${totalPassed}/${hiddenTestCount} hidden test cases`;
-        }
-        
-        // 10. Final Success Response
+
+        // 8. Construct Response Message
+        let message = totalPassedHidden === hiddenCount ? "✓ All tests passed!" : `✗ Passed ${totalPassedHidden}/${hiddenCount} hidden test cases`;
+
         res.json({
             success: true,
             data: {
-                passed: allPassed,
-                score: score,
+                passed: totalPassedHidden === hiddenCount,
+                score: finalScore,
                 max_score: problem.score || 20,
                 message: message,
                 sample_results: sampleResults,
-                hidden_results: {
-                    passed: totalPassed,
-                    total: hiddenTestCount,
-                    percentage: Math.round(passRate * 100)
-                },
-                submission_id: submissionId,
-                problem_title: problem.title || `Problem ${problemIndex + 1}`,
-                has_compile_error: hasCompileError,
-                has_runtime_error: hasRuntimeError,
-                language_used: actualLanguage
+                hidden_results: { passed: totalPassedHidden, total: hiddenCount }
             }
         });
 
     } catch (err) {
-        console.error("Submit Solution Error:", err);
-        res.status(500).json({ 
-            success: false, 
-            message: "Error submitting solution", 
-            error: err.message 
-        });
+        res.status(500).json({ success: false, message: "Error submitting solution", error: err.message });
     }
 });
+
+// Helper function to encapsulate compiler fetching logic
+async function runOnCompiler(language, code, stdin) {
+    try {
+        const response = await fetch('http://65.2.104.225:8000/api/compile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ language, code, stdin }),
+            timeout: 10000
+        });
+        const result = await response.json();
+        return {
+            output: String(result.output || result.stdout || ""),
+            error: String(result.stderr || result.error || "")
+        };
+    } catch (e) {
+        return { output: "", error: "Execution Timeout/Error" };
+    }
+}
 // Test compiler endpoint with different languages
 app.post('/api/test-compiler-detail', async (req, res) => {
     try {
@@ -8366,6 +7915,33 @@ app.delete('/api/moderator/contest/:id', verifyToken, async (req, res) => {
             message: "Failed to delete contest", 
             error: err.message 
         });
+    }
+});
+
+app.get('/api/moderator/contest/:id/export-csv', verifyToken, async (req, res) => {
+    try {
+        const contestId = req.params.id;
+        const { Items } = await client.send(new ScanCommand({
+            TableName: "StudentResults",
+            FilterExpression: "contest_id = :cid",
+            ExpressionAttributeValues: ddbMarshall({ ":cid": contestId })
+        }));
+
+        const results = (Items || []).map(i => unmarshall(i));
+        
+        // Define CSV Headers
+        let csvContent = "Student Email,Name,Score,Status,Problems Solved\n";
+        
+        // Append Rows
+        results.forEach(r => {
+            csvContent += `${r.student_email},${r.student_name},${r.total_score},${r.status},${r.problems_solved}\n`;
+        });
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=contest_${contestId}_scores.csv`);
+        res.status(200).send(csvContent);
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Export failed" });
     }
 });
 // ====================================================
