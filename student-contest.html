@@ -31,9 +31,11 @@
         .problem-list { flex: 1; overflow-y: auto; padding: 15px; }
         .problem-item { padding: 15px; margin-bottom: 10px; border-radius: 12px; cursor: pointer; background: var(--slate-700); transition: 0.3s; border: 1px solid transparent; display: flex; align-items: center; gap: 10px; }
         .problem-item.active { background: var(--primary); border-color: white; }
+        .problem-item.locked { opacity: 0.6; cursor: not-allowed; border-left: 4px solid var(--danger); }
         .status-dot { height: 10px; width: 10px; border-radius: 50%; flex-shrink: 0; }
         .status-passed { background: var(--success); box-shadow: 0 0 8px var(--success); }
         .status-pending { background: #94a3b8; }
+        .status-locked { background: var(--danger); }
 
         .main-content { flex: 1; display: flex; flex-direction: column; background: #f1f5f9; color: var(--slate-900); }
         .top-bar { padding: 15px 30px; background: white; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
@@ -50,8 +52,9 @@
         .btn { padding: 12px 24px; border-radius: 10px; border: none; font-weight: 700; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px; }
         .btn-secondary { background: #e2e8f0; color: var(--slate-800); justify-content: center; }
         .btn-secondary:hover { background: #cbd5e1; }
-        .btn-submit { background: var(--primary); color: white; }
-        .btn-submit:hover { background: var(--primary-dark); transform: translateY(-1px); }
+        .btn-submit { background: var(--primary); color: white; width: 100%; justify-content: center; }
+        .btn-submit:disabled { background: #94a3b8; cursor: not-allowed; transform: none; }
+        .btn-submit:hover:not(:disabled) { background: var(--primary-dark); transform: translateY(-1px); }
         .btn-end { background: var(--danger); color: white; }
         .btn-end:hover { background: #dc2626; }
 
@@ -59,10 +62,11 @@
         
         .timer-box { display: flex; align-items: center; gap: 10px; background: #fff1f2; padding: 8px 15px; border-radius: 10px; color: var(--danger); border: 1px solid #fecaca; font-weight: 800; }
         .timer-box.warning { background: #fffbeb; color: var(--warning); border-color: #fef3c7; }
-        .timer-box.critical { animation: pulse 1s infinite; background: #fee2e2; }
 
         .custom-input-area { margin-top: 10px; display: none; }
         .custom-input-area textarea { width: 100%; height: 80px; padding: 10px; border-radius: 8px; border: 1px solid #cbd5e1; font-family: monospace; }
+
+        .attempt-badge { background: #fee2e2; color: #ef4444; padding: 2px 8px; border-radius: 5px; font-size: 11px; font-weight: 700; }
 
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
 
@@ -97,7 +101,10 @@
 
     <div class="main-content">
         <div class="top-bar">
-            <h2 id="currentProblemTitle">Select a Problem</h2>
+            <div>
+                <h2 id="currentProblemTitle">Select a Problem</h2>
+                <div id="attemptStatus" style="font-size: 12px; margin-top: 4px; color: var(--slate-700);"></div>
+            </div>
             <div style="display: flex; gap: 15px; align-items: center;">
                 <div id="scoreDisplay" style="background: #f1f5f9; padding: 8px 15px; border-radius: 10px; font-weight: 800; color: var(--primary);">
                     Score: 0 / 0
@@ -139,10 +146,10 @@
                 <div id="editor"></div>
 
                 <div class="controls">
-                    <button class="btn btn-secondary" style="flex: 1;" onclick="runCustomCode()">
+                    <button class="btn btn-secondary" style="flex: 1;" id="runBtn" onclick="runCustomCode()">
                         <i class="fas fa-play"></i> Run Code
                     </button>
-                    <button class="btn btn-secondary" style="flex: 1;" onclick="runSampleTests()">
+                    <button class="btn btn-secondary" style="flex: 1;" id="sampleBtn" onclick="runSampleTests()">
                         <i class="fas fa-vials"></i> Run Samples
                     </button>
                 </div>
@@ -193,7 +200,7 @@
             });
 
             editor.on('change', () => {
-                if (selectedProblemIndex !== null) {
+                if (selectedProblemIndex !== null && !editor.getOption("readOnly")) {
                     localStorage.setItem(`draft_${contestId}_${selectedProblemIndex}`, editor.getValue());
                 }
             });
@@ -211,7 +218,13 @@
                     contestData = result.data;
                     renderProblemList();
                     updateScoreDisplay();
-                    if (selectedProblemIndex === null && contestData.problems.length > 0) selectProblem(0);
+                    
+                    if (selectedProblemIndex === null && contestData.problems.length > 0) {
+                        selectProblem(0);
+                    } else if (selectedProblemIndex !== null) {
+                        selectProblem(selectedProblemIndex); // Refresh UI state for current selection
+                    }
+                    
                     document.getElementById('loadingScreen').style.display = 'none';
                     if (!timerInterval) startContestTimer();
                 }
@@ -270,89 +283,136 @@
         }
 
         async function submitSolution() {
-            const code = editor.getValue();
-            const language = document.getElementById('langSelect').value;
-            if (!code.trim()) return;
-            if (!confirm("Submit this problem? Hidden cases will be checked.")) return;
-
-            try {
-                const res = await fetch(`${API_URL}/student/submit-solution`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ contest_id: contestId, problem_index: selectedProblemIndex, code, language })
-                });
-                const result = await res.json();
-                if (result.success) {
-                    alert(`Score Updated! Passed ${result.data.hidden_passed}/5 Hidden Cases.`);
-                    await loadContest();
-                }
-            } catch (e) { alert("Submission error."); }
-        }
-
-        async function endContest() {
-    if (!confirm("Are you sure you want to finish? You won't be able to edit further.")) return;
+    const code = editor.getValue();
+    if (!code.trim()) return;
+    
+    if (!confirm("Confirm submission? You will not be able to change your answer for this problem after clicking OK.")) return;
 
     try {
-        // 1. Fetch progression rules to see if this contest unlocks a debug contest
-        const response = await fetch(`${API_URL}/student/progression-rules`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+        const res = await fetch(`${API_URL}/student/submit-solution`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ 
+                contest_id: contestId, 
+                problem_index: selectedProblemIndex, 
+                code, 
+                language: document.getElementById('langSelect').value 
+            })
         });
-        const result = await response.json();
+        const result = await res.json();
         
-        // 2. Find if a rule exists where this current contest is the prerequisite
-        const activeRule = (result.data || []).find(r => r.normal_contest_id === contestId);
-
-        if (activeRule) {
-            // Use the student's progress data already loaded in the workspace
-            const currentScore = contestData.student_progress.total_score || 0;
-            const maxScore = contestData.student_progress.max_score || 1; // Avoid division by zero
-            const percentage = (currentScore / maxScore) * 100;
-
-            // 3. Check if they met the required passing percentage (e.g., 70%)
-            if (percentage >= activeRule.passing_score) {
-                alert(`Congratulations! You scored ${percentage.toFixed(1)}% and unlocked the Debugging Challenge.`);
-                window.location.href = `student-debug.html?id=${activeRule.debug_contest_id}`;
-                return;
-            } else {
-                alert(`Contest Finished. You scored ${percentage.toFixed(1)}%, which is below the ${activeRule.passing_score}% required to unlock the debugging stage.`);
-            }
+        if (result.success) {
+            alert("Problem Submitted Successfully. This question is now locked.");
+            await loadContest(); // This refreshes contestData and locks the UI
         }
-        
-        // 4. Fallback: If no rule exists or score is too low, go to dashboard
-        window.location.href = 'student_dashboard.html';
-        
     } catch (e) {
-        console.error("Navigation error:", e);
-        window.location.href = 'student_dashboard.html';
+        alert("Error submitting solution.");
     }
 }
 
+        async function endContest() {
+    if (!confirm("Are you sure you want to finish?")) return;
 
-        function selectProblem(index) {
-            selectedProblemIndex = index;
-            const prob = contestData.problems[index];
-            document.getElementById('currentProblemTitle').innerText = prob.title;
-            renderProblemList();
-            
-            const samples = prob.test_cases ? prob.test_cases.filter(tc => tc.is_sample) : [];
-            let sHtml = '';
-            samples.forEach((tc, i) => {
-                sHtml += `<div class="sample-box"><strong>Input ${i+1}:</strong><br>${tc.input}<br><strong>Output:</strong><br>${tc.output}</div>`;
-            });
+    try {
+        // Refresh local data to match what the backend sees
+        await loadContest(); 
 
-            document.getElementById('problemDescription').innerHTML = `<h3>${prob.title} (${prob.score} pts)</h3><p>${prob.description}</p>${sHtml}`;
-            editor.setValue(localStorage.getItem(`draft_${contestId}_${index}`) || "");
-            setTimeout(() => editor.refresh(), 50);
+        const ruleResponse = await fetch(`${API_URL}/student/progression-rules`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const ruleResult = await ruleResponse.json();
+        const activeRule = (ruleResult.data || []).find(r => r.normal_contest_id === contestId);
+
+        if (activeRule) {
+            // Use the same math the backend uses
+            const currentScore = contestData.student_progress.total_score || 0;
+            const maxScore = contestData.student_progress.max_score || 1;
+            const percentage = (currentScore / maxScore) * 100;
+
+            if (percentage >= activeRule.passing_score) {
+                alert(`Unlocked! Score: ${percentage.toFixed(1)}%`);
+                // Delay redirect slightly to allow DynamoDB to finish writes
+                setTimeout(() => {
+                    window.location.href = `student-debug.html?id=${activeRule.debug_contest_id}`;
+                }, 500);
+                return;
+            }
         }
+        window.location.href = 'student_dashboard.html';
+    } catch (e) {
+        window.location.href = 'student_dashboard.html';
+    }
+}
+        function selectProblem(index) {
+    selectedProblemIndex = index;
+    const prob = contestData.problems[index];
+    
+    // Check if problem should be locked
+    // Logic: If there is a submission OR attempts >= 2, lock it.
+    const hasSubmitted = prob.student_submission !== undefined || prob.passed;
+    const attempts = prob.student_submission?.attempts || 0;
+    const isLocked = hasSubmitted || attempts >= 2;
+
+    document.getElementById('currentProblemTitle').innerText = prob.title;
+    
+    // UI Update for Sidebar
+    renderProblemList();
+
+    if (isLocked) {
+        editor.setOption("readOnly", "nocursor");
+        document.getElementById('mainSubmitBtn').disabled = true;
+        document.getElementById('mainSubmitBtn').style.opacity = "0.5";
+        document.getElementById('mainSubmitBtn').innerText = "Question Locked";
+        document.getElementById('runBtn').disabled = true;
+        document.getElementById('sampleBtn').disabled = true;
+        document.getElementById('outputBox').innerHTML = `<div style="color:#ef4444; font-weight:bold;">
+            <i class="fas fa-lock"></i> This problem is locked because you have already submitted an answer.
+        </div>`;
+    } else {
+        editor.setOption("readOnly", false);
+        document.getElementById('mainSubmitBtn').disabled = false;
+        document.getElementById('mainSubmitBtn').style.opacity = "1";
+        document.getElementById('mainSubmitBtn').innerText = "Submit Problem";
+        document.getElementById('runBtn').disabled = false;
+        document.getElementById('sampleBtn').disabled = false;
+        document.getElementById('outputBox').innerText = "Ready for execution...";
+    }
+
+    // Load problem description
+    const samples = prob.test_cases ? prob.test_cases.filter(tc => tc.is_sample) : [];
+    let sHtml = '';
+    samples.forEach((tc, i) => {
+        sHtml += `<div class="sample-box"><strong>Sample ${i+1}</strong><br>Input: ${tc.input}<br>Output: ${tc.output}</div>`;
+    });
+
+    document.getElementById('problemDescription').innerHTML = `
+        <h3>${prob.title}</h3>
+        <p style="margin: 15px 0;">${prob.description}</p>
+        ${sHtml}
+    `;
+    
+    editor.setValue(localStorage.getItem(`draft_${contestId}_${index}`) || "");
+}
 
         function renderProblemList() {
             const list = document.getElementById('problemList');
-            list.innerHTML = contestData.problems.map((p, i) => `
-                <div class="problem-item ${selectedProblemIndex === i ? 'active' : ''}" onclick="selectProblem(${i})">
-                    <span class="status-dot ${p.passed ? 'status-passed' : 'status-pending'}"></span>
-                    <div><strong>${p.title}</strong><br><small>${p.score} pts</small></div>
-                </div>
-            `).join('');
+            list.innerHTML = contestData.problems.map((p, i) => {
+                const attempts = p.student_submission?.attempts || 0;
+                const isLocked = attempts >= 2 || p.passed;
+                
+                return `
+                    <div class="problem-item ${selectedProblemIndex === i ? 'active' : ''} ${isLocked ? 'locked' : ''}" onclick="selectProblem(${i})">
+                        <span class="status-dot ${p.passed ? 'status-passed' : (attempts >= 2 ? 'status-locked' : 'status-pending')}"></span>
+                        <div style="flex: 1;">
+                            <div style="display:flex; justify-content:space-between;">
+                                <strong>${p.title}</strong>
+                                ${attempts > 0 ? `<small style="color:${attempts >= 2 ? '#ef4444' : '#94a3b8'}">${attempts}/2</small>` : ''}
+                            </div>
+                            <small>${p.score} pts</small>
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
         function updateScoreDisplay() {
@@ -361,16 +421,41 @@
         }
 
         function startContestTimer() {
-            const limit = contestData.metadata?.time_limit || 60;
-            const start = new Date(contestData.created_at).getTime();
-            timerInterval = setInterval(() => {
-                const left = (limit * 60000) - (Date.now() - start);
-                if (left <= 0) { clearInterval(timerInterval); endContest(); return; }
-                const m = Math.floor(left / 60000);
-                const s = Math.floor((left % 60000) / 1000);
-                document.getElementById('timerText').innerText = `${m}:${s < 10 ? '0' : ''}${s}`;
-            }, 1000);
+    // 20 Minute Countdown Logic
+    const DURATION = 20 * 60 * 1000; 
+    
+    // Use a persistent start time in localStorage so refresh doesn't reset the 20 mins
+    let startTime = localStorage.getItem(`start_${contestId}`);
+    if (!startTime) {
+        startTime = Date.now();
+        localStorage.setItem(`start_${contestId}`, startTime);
+    }
+    
+    timerInterval = setInterval(() => {
+        const elapsed = Date.now() - parseInt(startTime);
+        const remaining = DURATION - elapsed;
+        
+        if (remaining <= 0) {
+            clearInterval(timerInterval);
+            document.getElementById('timerText').innerText = "00:00";
+            alert("Time is up! Your session has ended.");
+            endContest();
+            return;
         }
+        
+        const minutes = Math.floor(remaining / 60000);
+        const seconds = Math.floor((remaining % 60000) / 1000);
+        
+        const timerText = document.getElementById('timerText');
+        timerText.innerText = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+        
+        // Visual warnings
+        if (minutes < 5) {
+            document.getElementById('timerContainer').style.background = "#fff1f2";
+            document.getElementById('timerContainer').style.color = "#ef4444";
+        }
+    }, 1000);
+}
 
         function exitContest() {
             if (confirm("Exit IDE? Your current draft is saved, but time continues.")) window.location.href = 'student_dashboard.html';
