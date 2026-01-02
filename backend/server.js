@@ -1073,6 +1073,52 @@ app.post('/api/moderator/process-debug-document', verifyToken, async (req, res) 
         });
     }
 });
+// GET all debugging contests for the logged-in moderator
+// GET all debugging contests for the logged-in moderator using GSI
+app.get('/api/moderator/debug-contests', verifyToken, async (req, res) => {
+    try {
+        const moderatorEmail = req.user.email;
+        console.log(`Querying GSI for moderator: ${moderatorEmail}`);
+
+        const { Items } = await client.send(new QueryCommand({
+            TableName: "DebugContests",
+            IndexName: "ModeratorContestsIndex", // Matches your AWS screenshot
+            KeyConditionExpression: "created_by = :email", // Matches GSI Partition Key
+            ExpressionAttributeValues: ddbMarshall({
+                ":email": moderatorEmail
+            })
+        }));
+        
+        const debugContests = (Items || []).map(i => {
+            const contest = unmarshall(i);
+            return {
+                id: contest.contest_id,
+                title: contest.name || "Unnamed Debug Contest",
+                language: contest.language || 'python',
+                problems_count: contest.problems?.length || 0,
+                created_at: contest.created_at || new Date().toISOString()
+            };
+        });
+        
+        res.json({ success: true, data: debugContests });
+    } catch (err) {
+        console.error("GSI Query Error:", err);
+        res.status(500).json({ success: false, message: "Error fetching your contests" });
+    }
+});
+// DELETE a debugging contest
+app.delete('/api/moderator/debug-contest/:id', verifyToken, async (req, res) => {
+    try {
+        const contestId = req.params.id;
+        await client.send(new DeleteItemCommand({
+            TableName: "DebugContests",
+            Key: ddbMarshall({ contest_id: contestId })
+        }));
+        res.json({ success: true, message: "Contest deleted successfully" });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Delete failed" });
+    }
+});
 
 // Save processed document problems
 app.post('/api/moderator/save-document-problems', verifyToken, async (req, res) => {
@@ -2650,24 +2696,8 @@ app.post('/api/moderator/generate-problems', verifyToken, async (req, res) => {
 // POST /api/moderator/create-debug-contest
 app.post('/api/moderator/create-debug-contest', verifyToken, async (req, res) => {
     try {
-        const { name, language, problems, targetType, targetCollege } = req.body;
-        
-        // --- NEW VALIDATION LOGIC ---
-        for (const prob of problems) {
-            const samples = prob.test_cases.filter(tc => tc.is_sample === true).length;
-            const hidden = prob.test_cases.filter(tc => tc.is_sample === false).length;
-            
-            if (samples !== 2 || hidden !== 5) {
-                return res.status(400).json({ 
-                    success: false, 
-                    message: `Problem "${prob.title}" must have exactly 2 sample and 5 hidden test cases. Found: ${samples} samples, ${hidden} hidden.` 
-                });
-            }
-        }
-        // --- END VALIDATION ---
-
+        const { name, language, problems, targetType, targetCollege, created_by } = req.body;
         const contestId = `debug_${crypto.randomUUID().replace(/-/g, '').substring(0, 12)}`;
-        const totalScore = problems.reduce((sum, p) => sum + (p.score || 20), 0);
         
         const contestData = {
             contest_id: contestId,
@@ -2677,10 +2707,9 @@ app.post('/api/moderator/create-debug-contest', verifyToken, async (req, res) =>
             problems: problems,
             target_type: targetType || 'overall',
             target_college: targetType === 'college' ? targetCollege : '',
-            created_by: req.user.email,
+            created_by: created_by || req.user.email, // Final fallback to token email
             created_at: new Date().toISOString(),
-            status: "active",
-            metadata: { total_score: totalScore }
+            status: "active"
         };
 
         await client.send(new PutItemCommand({
@@ -2693,64 +2722,47 @@ app.post('/api/moderator/create-debug-contest', verifyToken, async (req, res) =>
         res.status(500).json({ success: false, message: err.message });
     }
 });
-
 // Get all debugging contests for moderator
+// GET all debugging contests for the logged-in moderator
 app.get('/api/moderator/debug-contests', verifyToken, async (req, res) => {
     try {
-        console.log("Fetching debug contests using GSI...");
-        console.log("User email:", req.user.email);
+        console.log("Fetching debug contests using GSI ModeratorContestsIndex...");
         
-        // Use Query with GSI instead of Scan
+        // Use Query with GSI instead of Scan for better performance
         const { Items } = await client.send(new QueryCommand({
             TableName: "DebugContests",
-            IndexName: "ModeratorContestsIndex",  // Use your GSI
-            KeyConditionExpression: "created_by = :email",
+            IndexName: "ModeratorContestsIndex", // confirmed active in AWS Console
+            KeyConditionExpression: "created_by = :email", // Matches GSI Partition Key
             ExpressionAttributeValues: ddbMarshall({
-                ":email": req.user.email
+                ":email": req.user.email // Derived from JWT token
             })
         }));
         
-        console.log("Found contests via GSI:", Items?.length || 0);
+        console.log(`Found ${Items?.length || 0} contests for moderator ${req.user.email}`);
         
         if (!Items || Items.length === 0) {
-            console.log("No contests found for this moderator");
             return res.json({
                 success: true,
                 data: []
             });
         }
         
-        // Process the items
+        // Unmarshall and format for the frontend display
         const debugContests = (Items || []).map(i => {
             try {
                 const contest = unmarshall(i);
-                console.log("Processing contest:", contest.contest_id, contest.name);
-                
                 return {
                     id: contest.contest_id,
-                    contest_id: contest.contest_id,
                     title: contest.name || "Unnamed Debug Contest",
-                    description: contest.description || "Debugging contest",
-                    type: 'debugging',
-                    status: contest.status || 'active',
                     language: contest.language || 'python',
-                    created_at: contest.created_at || contest.createdAt,
-                    updated_at: contest.updated_at || contest.updatedAt,
-                    passing_score: contest.passing_score || contest.metadata?.passing_score || 60,
                     problems_count: contest.problems?.length || 0,
-                    created_by: contest.created_by,
-                    prerequisites: contest.prerequisites || null,
-                    target_type: contest.target_type || 'overall',
-                    target_college: contest.target_college || '',
-                    total_score: contest.metadata?.total_score || 0
+                    created_at: contest.created_at || contest.createdAt || new Date().toISOString()
                 };
             } catch (unmarshalErr) {
                 console.error("Error unmarshalling item:", unmarshalErr);
                 return null;
             }
-        }).filter(contest => contest !== null); // Remove null items
-        
-        console.log(`Returning ${debugContests.length} debug contests`);
+        }).filter(contest => contest !== null);
         
         res.json({
             success: true,
@@ -2758,7 +2770,7 @@ app.get('/api/moderator/debug-contests', verifyToken, async (req, res) => {
         });
         
     } catch (err) {
-        console.error("Get Debug Contests Error:", err.message, err.stack);
+        console.error("Get Debug Contests Error:", err.message);
         res.status(500).json({
             success: false,
             message: "Error fetching debug contests",
