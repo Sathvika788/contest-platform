@@ -457,6 +457,76 @@
             setTimeout(() => t.remove(), 3000);
         }
 
+        // 1. The function that handles the file after it's picked or dropped
+async function handleFileSelect(files) {
+    if (files.length === 0) return;
+    
+    const file = files[0];
+    const reader = new FileReader();
+    const dropText = document.getElementById('dropText');
+
+    // Show loading state in the UI
+    dropText.innerHTML = `<div class="spinner"></div> Processing ${file.name}...`;
+
+    reader.onload = async (e) => {
+        const content = e.target.result;
+        
+        try {
+            // This matches the endpoint you created in server.js
+            const response = await fetch(`${API_URL}/moderator/process-document`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({ 
+                    documentContent: content,
+                    language: document.getElementById('aiLanguage')?.value || 'python',
+                    difficulty: 'Medium'
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                // Add the AI-extracted problems to your global list
+                currentProblems = [...currentProblems, ...result.data.problems];
+                renderProblems();
+                showToast(`Successfully extracted ${result.data.count} problems`, "success");
+            } else {
+                showToast(result.message || "Failed to process document", "error");
+            }
+        } catch (err) {
+            console.error("Upload Error:", err);
+            showToast("Connection to server failed", "error");
+        } finally {
+            dropText.innerHTML = `Drag & Drop CSV/TXT Document`;
+        }
+    };
+
+    reader.readAsText(file);
+}
+
+// 2. Add actual "Drag and Drop" listeners so the UI reacts to files being hovered
+document.addEventListener('DOMContentLoaded', () => {
+    const dropZone = document.getElementById('dropZone');
+    if (!dropZone) return;
+
+    ['dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+    });
+
+    dropZone.addEventListener('dragover', () => dropZone.classList.add('dragover'));
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+        dropZone.classList.remove('dragover');
+        handleFileSelect(e.dataTransfer.files);
+    });
+});
+
         function logout() { localStorage.clear(); window.location.href = 'index.html'; }
     </script>
 </body>
