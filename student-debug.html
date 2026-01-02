@@ -19,14 +19,20 @@
             --text-main: #f8fafc;
             --success: #10b981;
             --danger: #ef4444;
+            --warning: #f59e0b;
             --scrollbar-bg: #1e293b;
             --scrollbar-thumb: #475569;
         }
 
-        /* Custom Scrollbars */
+        /* --- CUSTOM SCROLLBAR --- */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: var(--scrollbar-bg); }
-        ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 10px; border: 2px solid var(--scrollbar-bg); }
+        ::-webkit-scrollbar-thumb { 
+            background: var(--scrollbar-thumb); 
+            border-radius: 10px; 
+            border: 2px solid var(--scrollbar-bg); 
+        }
+        ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
 
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; }
         
@@ -38,6 +44,7 @@
             overflow: hidden;
         }
 
+        /* Sidebar Styles */
         .sidebar {
             width: 320px;
             background: var(--slate-800);
@@ -55,20 +62,8 @@
             border-bottom: 1px solid var(--slate-700);
         }
 
-        .logo-box {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .logo-img {
-            height: 40px;
-            width: 40px;
-            border-radius: 10px;
-            object-fit: cover;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        }
-
+        .logo-box { display: flex; align-items: center; gap: 12px; }
+        .logo-img { height: 40px; width: 40px; border-radius: 10px; object-fit: cover; }
         .logo-text { font-size: 20px; font-weight: 800; color: var(--primary); }
 
         .problem-list { flex: 1; overflow-y: auto; padding: 15px; }
@@ -91,6 +86,7 @@
             box-shadow: 0 10px 20px rgba(26, 115, 232, 0.2);
         }
 
+        /* Main Content Styles */
         .main-content {
             flex: 1;
             display: flex;
@@ -114,8 +110,6 @@
             z-index: 5;
         }
 
-        #currentProblemTitle { font-size: 1.4rem; font-weight: 800; color: var(--slate-800); }
-
         .content-area {
             flex: 1;
             display: flex;
@@ -131,7 +125,6 @@
             padding: 35px;
             border-radius: 20px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.5);
         }
 
         .editor-container {
@@ -144,10 +137,8 @@
 
         .CodeMirror {
             flex: 1;
-            height: 100%;
             border-radius: 15px;
             font-size: 15px;
-            font-family: 'Fira Code', monospace;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
         }
 
@@ -156,15 +147,13 @@
             color: #e2e8f0;
             padding: 20px;
             border-radius: 0 0 15px 15px;
-            font-family: 'Fira Code', monospace;
             height: 160px;
             overflow-y: auto; 
-            border: 2px solid var(--slate-800);
             font-size: 13px;
             white-space: pre-wrap;
+            font-family: 'Fira Code', monospace;
         }
 
-        .controls { display: flex; gap: 12px; }
         .btn {
             padding: 14px 28px;
             border-radius: 12px;
@@ -179,21 +168,29 @@
 
         .btn-run { background: #e2e8f0; color: var(--slate-800); }
         .btn-submit { background: var(--primary); color: white; flex: 1; justify-content: center; }
-        .btn-submit:hover { background: var(--primary-dark); transform: translateY(-2px); }
 
         .modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.9); display: none; align-items: center; justify-content: center; z-index: 2000; }
         .modal.active { display: flex; }
         .modal-content { background: white; padding: 35px; border-radius: 24px; max-width: 500px; width: 90%; text-align: center; }
 
-        .loading-screen { position: fixed; inset: 0; background: var(--slate-900); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; }
-        .spinner { width: 50px; height: 50px; border: 4px solid rgba(26, 115, 232, 0.1); border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
+        .timer-badge {
+            background: var(--danger);
+            color: white;
+            padding: 6px 15px;
+            border-radius: 10px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
         @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
 
-    <div id="loadingScreen" class="loading-screen">
-        <div class="spinner"></div>
+    <div id="loadingScreen" style="position: fixed; inset: 0; background: var(--slate-900); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999;">
+        <div style="width: 50px; height: 50px; border: 4px solid rgba(26, 115, 232, 0.1); border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
         <h2 style="margin-top: 20px; color: var(--text-main);">Entering Debug Mode...</h2>
     </div>
 
@@ -211,7 +208,7 @@
                 <img src="logo.jpg" alt="Logo" class="logo-img">
                 <span class="logo-text">ContestPro</span>
             </div>
-            <p style="font-size: 11px; color: #94a3b8; margin-top: 15px; text-transform: uppercase; letter-spacing: 1px;"><i class="fas fa-bug"></i> Bug Directory</p>
+            <p style="font-size: 11px; color: #94a3b8; margin-top: 15px; text-transform: uppercase;"><i class="fas fa-bug"></i> Bug Directory</p>
         </div>
         <div class="problem-list" id="problemList"></div>
         <div style="padding: 20px; border-top: 1px solid var(--slate-700);">
@@ -225,10 +222,13 @@
         <div class="top-bar">
             <div style="display: flex; align-items: center; gap: 15px;">
                 <h2 id="currentProblemTitle">Select a Buggy Code</h2>
-                <span style="background: var(--primary); color: white; padding: 4px 12px; border-radius: 8px; font-size: 11px; font-weight: 800; text-transform: uppercase;">Debug Mode</span>
+                <div class="timer-badge">
+                    <i class="fas fa-hourglass-half"></i> <span id="timerText">25:00</span>
+                </div>
             </div>
-            <div id="scoreBadge" style="background: var(--slate-900); color: white; padding: 8px 20px; border-radius: 12px; font-weight: 700; font-size: 14px;">
-                Score: 0
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <div id="attemptBadge" style="background: var(--warning); color: white; padding: 8px 20px; border-radius: 12px; font-weight: 700; font-size: 14px;">Attempts: -</div>
+                <div id="scoreBadge" style="background: var(--slate-900); color: white; padding: 8px 20px; border-radius: 12px; font-weight: 700; font-size: 14px;">Score: 0</div>
             </div>
         </div>
         
@@ -243,27 +243,23 @@
             <div class="editor-container">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <span style="font-weight: 800; color: var(--slate-700); font-size: 13px;"><i class="fas fa-code"></i> FIX THE LOGIC:</span>
-                    <span id="currentLang" style="background: #e2e8f0; padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 700;">PYTHON</span>
+                    <span style="background: #e2e8f0; padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 700;">PYTHON</span>
                 </div>
 
-                <div id="editor-wrapper" style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
-                    <div id="editor" style="flex: 1;"></div>
-                </div>
+                <div id="editor" style="flex: 1;"></div>
 
-                <div class="controls">
-                    <button class="btn btn-run" onclick="runCode()">
-                        <i class="fas fa-vial"></i> Run Sample Tests
+                <div style="display: flex; gap: 12px;">
+                    <button class="btn btn-run" id="runBtn" onclick="runCode()">
+                        <i class="fas fa-vial"></i> Run Samples
                     </button>
-                    <button class="btn btn-submit" onclick="submitSolution()">
+                    <button class="btn btn-submit" id="submitBtn" onclick="submitSolution()">
                         <i class="fas fa-cloud-upload-alt"></i> Submit Final Fix
                     </button>
                 </div>
 
                 <div id="outputContainer">
-                    <div style="background: var(--slate-800); color: white; padding: 10px 20px; border-radius: 15px 15px 0 0; font-size: 11px; font-weight: 700;">
-                        TEST CASE RESULTS
-                    </div>
-                    <div id="outputBox" class="output-box">Run samples to see if your fix works...</div>
+                    <div style="background: var(--slate-800); color: white; padding: 10px 20px; border-radius: 15px 15px 0 0; font-size: 11px; font-weight: 700;">TEST RESULTS</div>
+                    <div id="outputBox" class="output-box">Run samples to check your logic...</div>
                 </div>
             </div>
         </div>
@@ -273,46 +269,47 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
     
     <script>
-        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-        const API_URL = isLocal ? "http://localhost:5000/api" : "http://3.108.67.225:5000/api";
+        const API_URL = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") 
+            ? "http://localhost:5000/api" 
+            : "http://3.108.67.225:5000/api";
         
-        const urlParams = new URLSearchParams(window.location.search);
-        const contestId = urlParams.get('id');
+        const contestId = new URLSearchParams(window.location.search).get('id');
         const token = localStorage.getItem('token');
         
         let editor, contestData, selectedIndex = null;
+        let timeLeft = 25 * 60; 
 
         async function init() {
             if (!token) { window.location.href = 'login.html'; return; }
             
             editor = CodeMirror(document.getElementById('editor'), {
-                lineNumbers: true,
-                mode: "python",
-                theme: "dracula",
-                indentUnit: 4,
-                scrollbarStyle: "native",
-                lineWrapping: true
+                lineNumbers: true, mode: "python", theme: "dracula",
+                indentUnit: 4, lineWrapping: true
             });
 
-            await loadDebugContest();
+            await loadContest();
+            startTimer();
         }
 
-        async function loadDebugContest() {
+        function startTimer() {
+            const timerObj = setInterval(() => {
+                const mins = Math.floor(timeLeft / 60);
+                const secs = timeLeft % 60;
+                document.getElementById('timerText').textContent = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+                if (timeLeft <= 0) { clearInterval(timerObj); autoSubmit(); }
+                timeLeft--;
+            }, 1000);
+        }
+
+        async function loadContest() {
             try {
-                const response = await fetch(`${API_URL}/student/debug-contest/${contestId}`, {
+                const res = await fetch(`${API_URL}/student/debug-contest/${contestId}`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
-                const result = await response.json();
-                
-                if (response.status === 403) {
-                    alert("Locked: Complete the prerequisite contest first.");
-                    window.location.href = 'student_dashboard.html';
-                    return;
-                }
-
+                const result = await res.json();
                 if (result.success) {
                     contestData = result.data;
-                    renderList();
+                    renderSidebar();
                     if (contestData.problems.length > 0) selectProblem(0);
                     document.getElementById('loadingScreen').style.display = 'none';
                     document.getElementById('scoreBadge').textContent = `Score: ${contestData.student_progress?.total_score || 0}`;
@@ -320,122 +317,153 @@
             } catch (e) { console.error(e); }
         }
 
-        function renderList() {
-            const list = document.getElementById('problemList');
-            list.innerHTML = contestData.problems.map((p, i) => `
-                <div class="problem-item ${selectedIndex === i ? 'active' : ''}" onclick="selectProblem(${i})">
-                    <strong style="font-size:14px;">Bug ${i + 1}: ${p.title}</strong>
-                    <div style="font-size: 11px; opacity: 0.8; margin-top:5px;">
-                        ${p.passed ? '✅ Solved' : 'Weight: ' + (p.score || 20) + ' pts'}
-                    </div>
+        function renderSidebar() {
+    const list = document.getElementById('problemList');
+    list.innerHTML = contestData.problems.map((p, i) => {
+        // Correctly calculate locked state for the list view
+        const isLocked = (p.attempts_taken >= 2 || p.passed);
+        return `
+            <div class="problem-item ${selectedIndex === i ? 'active' : ''}" onclick="selectProblem(${i})">
+                <strong style="font-size:14px;">${isLocked ? '🔒 ' : ''}Bug ${i + 1}: ${p.title}</strong>
+                <div style="font-size: 11px; opacity: 0.8; margin-top:5px;">
+                    ${p.passed ? '✅ Solved' : (isLocked ? 'Locked (Max Attempts)' : 'Attempts: ' + (2 - (p.attempts_taken || 0)) + ' left')}
                 </div>
-            `).join('');
-        }
+            </div>`;
+    }).join('');
+}
 
         function selectProblem(i) {
-            selectedIndex = i;
-            const p = contestData.problems[i];
-            document.getElementById('currentProblemTitle').textContent = p.title;
+    selectedIndex = i;
+    const p = contestData.problems[i];
+    
+    // Logic: Lock if problem is passed OR if attempts taken is 2 or more
+    const attemptsTaken = p.attempts_taken || 0;
+    const attemptsLeft = Math.max(0, 2 - attemptsTaken);
+    const isLocked = attemptsTaken >= 2 || p.passed;
+
+    document.getElementById('currentProblemTitle').textContent = p.title;
+    document.getElementById('attemptBadge').textContent = `Attempts: ${attemptsLeft} Left`;
+    
+    // Change badge color based on attempts left
+    document.getElementById('attemptBadge').style.background = isLocked ? "var(--danger)" : "var(--warning)";
+    
+    // Lock the UI elements immediately
+    editor.setOption("readOnly", isLocked);
+    document.getElementById('submitBtn').disabled = isLocked;
+    document.getElementById('runBtn').disabled = isLocked;
+
+    // Visual cues for disabled buttons
+    document.getElementById('submitBtn').style.opacity = isLocked ? "0.5" : "1";
+    document.getElementById('runBtn').style.opacity = isLocked ? "0.5" : "1";
+
+    // Filter and render sample cases
+    const samplesHTML = p.test_cases ? p.test_cases.filter(tc => tc.is_sample).map((tc, idx) => `
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; border-radius: 8px; margin-top: 10px;">
+            <div style="font-size: 11px; font-weight: 800; color: #64748b;">SAMPLE ${idx + 1}</div>
+            <div style="font-size: 12px; margin-top: 5px;"><strong>In:</strong> ${tc.input} | <strong>Out:</strong> ${tc.output}</div>
+        </div>`).join('') : '<p>No samples.</p>';
+
+    document.getElementById('problemDescription').innerHTML = `
+        <h3 style="color:var(--primary)">Task Description</h3>
+        <p style="margin: 20px 0; line-height:1.6;">${p.description || 'Fix the logic error.'}</p>
+        <div style="background: ${isLocked ? (p.passed ? '#e8f5e9' : '#ffebee') : '#e3f2fd'}; padding: 15px; border-radius: 12px; margin-bottom:20px;">
+            <strong>Status:</strong> ${p.passed ? '✅ Solved' : (attemptsTaken >= 2 ? '❌ Locked (Max attempts reached)' : 'Available')}
+        </div>
+        <h4>Sample Cases:</h4> ${samplesHTML}`;
+    
+    editor.setValue(p.buggy_code || "");
+    renderSidebar(); // Refresh sidebar to show lock icons
+}
+
+       async function runCode() {
+    const out = document.getElementById('outputBox');
+    out.textContent = "Running test...";
+    out.style.color = "#e2e8f0";
+
+    try {
+        const res = await fetch(`${API_URL}/student/run-debug-test`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json', 
+                'Authorization': `Bearer ${token}` 
+            },
+            body: JSON.stringify({ 
+                contest_id: contestId, 
+                problem_index: selectedIndex, 
+                fixed_code: editor.getValue() 
+            })
+        });
+
+        const result = await res.json();
+        
+        if (result.success && result.data) {
+            const data = result.data;
+            // Updated to handle the specific keys returned by your server.js
+            let displayMsg = `Status: ${data.passed ? '✅ PASSED' : '❌ FAILED'}\n`;
+            displayMsg += `Actual Output: ${data.output || 'No output'}\n`;
+            displayMsg += `Expected Output: ${data.expected || 'N/A'}`;
             
-            // Displays both Sample test cases if they exist
-            const samplesHTML = p.test_cases ? p.test_cases.filter(tc => tc.is_sample).map((tc, idx) => `
-                <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; border-radius: 8px; margin-top: 10px; color: var(--slate-800);">
-                    <div style="font-size: 11px; font-weight: 800; color: #64748b;">SAMPLE ${idx + 1}</div>
-                    <div style="font-size: 12px; margin-top: 5px;"><strong>In:</strong> ${tc.input || 'N/A'}</div>
-                    <div style="font-size: 12px;"><strong>Out:</strong> ${tc.output}</div>
-                </div>
-            `).join('') : '<p style="color: #64748b;">No sample cases provided.</p>';
-
-            document.getElementById('problemDescription').innerHTML = `
-                <h3 style="color:var(--primary)">Bug Investigation</h3>
-                <p style="margin: 20px 0; font-size:15px; line-height:1.6; color: var(--slate-800);">${p.description || 'Analyze the code and fix the logic errors.'}</p>
-                
-                <div style="background: #e3f2fd; border-left: 4px solid var(--primary); padding: 15px; border-radius: 12px; margin-bottom:20px; color: var(--slate-800);">
-                    <strong style="color:var(--primary-dark)">Objective:</strong><br>
-                    Correct the source code. Your final score will be calculated based on 5 hidden test cases.
-                </div>
-
-                <h4 style="color: var(--slate-800);">Sample Cases (Visible):</h4>
-                ${samplesHTML}
-            `;
+            if (data.error) {
+                displayMsg += `\nError: ${data.error}`;
+                out.style.color = "var(--danger)";
+            } else {
+                out.style.color = data.passed ? "var(--success)" : "var(--danger)";
+            }
             
-            editor.setValue(p.buggy_code || "");
-            renderList();
-            editor.refresh();
+            out.textContent = displayMsg;
+        } else {
+            out.textContent = "Server Error: " + (result.message || "Unknown error");
+            out.style.color = "var(--danger)";
         }
-
-        async function runCode() {
-            const outputBox = document.getElementById('outputBox');
-            outputBox.textContent = "Running sample test cases...";
-            outputBox.style.color = "#e2e8f0";
-
-            try {
-                const response = await fetch(`${API_URL}/student/run-debug-test`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ 
-                        contest_id: contestId, 
-                        problem_index: selectedIndex, 
-                        fixed_code: editor.getValue() 
-                    })
-                });
-
-                const result = await response.json();
-                if (result.success) {
-                    const data = result.data;
-                    // Displays detailed feedback for each sample case
-                    if(data.sample_results && Array.isArray(data.sample_results)) {
-                        outputBox.innerHTML = data.sample_results.map(res => 
-                            `Sample ${res.test_case}: ${res.passed ? '✅ PASSED' : '❌ FAILED'}\n   Input: ${res.input}\n   Expected: ${res.expected}\n   Actual: ${res.actual}\n`
-                        ).join('\n');
-                        const allPassed = data.sample_results.every(r => r.passed);
-                        outputBox.style.color = allPassed ? "var(--success)" : "var(--danger)";
-                    } else {
-                        outputBox.innerHTML = `Status: ${data.message}\nOutput: ${data.output}\nExpected: ${data.expected}`;
-                        outputBox.style.color = data.passed ? "var(--success)" : "var(--danger)";
-                    }
-                }
-            } catch (e) { outputBox.textContent = "Execution Error: " + e.message; }
-        }
+    } catch (e) { 
+        console.error("Run error:", e);
+        out.textContent = "Execution Error. Check console for details.";
+        out.style.color = "var(--danger)";
+    }
+}
 
         async function submitSolution() {
-            const outputBox = document.getElementById('outputBox');
-            outputBox.textContent = "Submitting and running hidden tests...";
-            
-            try {
-                const response = await fetch(`${API_URL}/student/submit-debug-solution`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ 
-                        contest_id: contestId, 
-                        problem_index: selectedIndex, 
-                        fixed_code: editor.getValue() 
-                    })
-                });
+    // Disable button immediately to prevent double-clicks during request
+    const subBtn = document.getElementById('submitBtn');
+    subBtn.disabled = true;
 
-                const result = await response.json();
-                if (result.success) {
-                    const data = result.data;
-                    document.getElementById('modalTitle').textContent = data.passed ? "✅ Bug Resolved!" : "❌ Hidden Tests Failed";
-                    document.getElementById('modalMessage').innerHTML = `
-                        <p style="color: var(--slate-700);">${data.message}</p>
-                        <div style="margin-top:15px; background:#f1f5f9; padding:15px; border-radius:12px; color: var(--slate-800);">
-                            <strong>Hidden Cases Passed:</strong> ${data.hidden_passed || 0} / 5
-                        </div>
-                        <p style="margin-top:15px; font-weight:800; font-size:18px; color:var(--primary)">Points: ${data.score}</p>
-                    `;
-                    document.getElementById('resultModal').classList.add('active');
-                    document.getElementById('scoreBadge').textContent = `Score: ${data.student_progress?.total_score || 0}`;
-                    
-                    if(data.passed) {
-                        contestData.problems[selectedIndex].passed = true;
-                        renderList();
-                    }
-                } else {
-                    alert(result.message || "Submission failed.");
-                }
-            } catch (e) { alert("Submission failed."); }
+    try {
+        const res = await fetch(`${API_URL}/student/submit-debug-solution`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ 
+                contest_id: contestId, 
+                problem_index: selectedIndex, 
+                fixed_code: editor.getValue() 
+            })
+        });
+        const result = await res.json();
+        
+        if (result.success) {
+            // Update the local data object with new attempt count and pass status
+            contestData.problems[selectedIndex].attempts_taken = result.data.attempts_taken;
+            if (result.data.passed) {
+                contestData.problems[selectedIndex].passed = true;
+            }
+
+            // RE-RENDER UI to apply the "Locked" state immediately
+            renderSidebar(); 
+            selectProblem(selectedIndex);
+
+            // Show the result modal
+            document.getElementById('modalTitle').textContent = result.data.passed ? "✅ Bug Resolved!" : "❌ Failed";
+            document.getElementById('modalMessage').textContent = result.data.message;
+            document.getElementById('resultModal').classList.add('active');
+        } else {
+            // Re-enable if server error occurred
+            subBtn.disabled = false;
+            alert(result.message || "Submission failed");
         }
+    } catch (e) { 
+        console.error("Submit error:", e); 
+        subBtn.disabled = false;
+    }
+}
 
         function closeModal() { document.getElementById('resultModal').classList.remove('active'); }
         window.onload = init;
