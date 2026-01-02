@@ -74,23 +74,30 @@
         input:focus, select:focus, textarea:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1); }
 
         .btn { padding: 14px 28px; border-radius: 12px; border: none; font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.3s ease; display: inline-flex; align-items: center; gap: 10px; justify-content: center; }
+        .btn-sm { padding: 8px 16px; font-size: 12px; border-radius: 8px; }
         .btn-primary { background: var(--primary); color: white; }
         .btn-success { background: var(--success); color: white; }
         .btn-danger { background: var(--danger); color: white; }
 
+        /* Manage Table Styles */
+        .contest-table { width: 100%; border-collapse: separate; border-spacing: 0 8px; }
+        .contest-table th { text-align: left; padding: 12px 20px; color: var(--text-muted); font-size: 12px; text-transform: uppercase; }
+        .contest-row { background: white; transition: 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .contest-row:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .contest-row td { padding: 20px; border-top: 1px solid #f1f5f9; border-bottom: 1px solid #f1f5f9; }
+        .contest-row td:first-child { border-left: 1px solid #f1f5f9; border-radius: 12px 0 0 12px; }
+        .contest-row td:last-child { border-right: 1px solid #f1f5f9; border-radius: 0 12px 12px 0; }
+
+        .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        .status-active { background: #ecfdf5; color: #10b981; }
+
         .tc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #f1f5f9; padding: 15px; border-radius: 12px; margin-bottom: 15px; }
-        
         .upload-area { border: 2px dashed var(--primary); padding: 50px 30px; text-align: center; border-radius: 20px; background: rgba(99, 102, 241, 0.03); cursor: pointer; transition: 0.3s; margin-bottom: 20px; }
         .upload-area.dragover { background: rgba(99, 102, 241, 0.15); border-color: var(--primary-dark); transform: scale(1.01); }
-        
         .problem-item { background: white; border: 1px solid #e2e8f0; padding: 18px; border-radius: 15px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; }
-        .problem-item:hover { border-color: var(--primary); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-
         .hidden-section { display: none !important; }
-        
         .spinner { width: 24px; height: 24px; border: 3px solid rgba(99, 102, 241, 0.2); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; display: inline-block; }
         @keyframes spin { to { transform: rotate(360deg); } }
-
         .toast { position: fixed; bottom: 30px; right: 30px; padding: 16px 24px; border-radius: 12px; color: white; font-weight: 700; box-shadow: 0 10px 25px rgba(0,0,0,0.1); z-index: 1000; display: flex; align-items: center; gap: 10px; }
         .toast-success { background: var(--success); }
         .toast-error { background: var(--danger); }
@@ -110,114 +117,134 @@
         
         <div class="content-grid">
             <div class="sidebar">
-                <a class="nav-item" href="moderator_dashboard.html"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-                <a class="nav-item active"><i class="fas fa-code"></i> Regular Contest</a>
+                <a class="nav-item" href="moderator.html"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
+                <a class="nav-item active" id="navCreate" onclick="switchTab('create')"><i class="fas fa-plus-circle"></i> Create Contest</a>
+                <a class="nav-item" id="navManage" onclick="switchTab('manage')"><i class="fas fa-tasks"></i> Manage Contests</a>
                 <a class="nav-item" href="create-debug-contest.html"><i class="fas fa-bug"></i> Debug Contest</a>
                 <a class="nav-item" id="exportBtn" onclick="exportActualScores()"><i class="fas fa-file-export"></i> Download Actual Scores</a>
                 <a class="nav-item" onclick="logout()" style="margin-top: auto; color: #f87171;"><i class="fas fa-sign-out-alt"></i> Logout</a>
             </div>
             
             <div class="main-content">
-                <div class="content-section">
-                    <h3><i class="fas fa-cog"></i> 1. Contest Configuration</h3>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                        <div>
-                            <label>Contest Name *</label>
-                            <input type="text" id="contestName" placeholder="e.g., Python Certification 2026">
-                        </div>
-                        <div>
-                            <label>Duration (minutes)</label>
-                            <input type="number" id="timeLimit" value="120">
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="content-section">
-                    <h3><i class="fas fa-tasks"></i> 2. Problem Set Construction</h3>
-                    
-                    <div class="form-group" style="margin-bottom: 25px;">
-                        <label>Creation Method</label>
-                        <select id="methodSelect" onchange="toggleCreationMethod()" style="font-weight: 700; border-color: var(--primary);">
-                            <option value="manual">Manual Form (2 Sample, 5 Hidden TCs)</option>
-                            <option value="ai">Generative AI (Topic-based)</option>
-                            <option value="document">Document Mode (File Drag & Drop)</option>
-                        </select>
-                    </div>
-
-                    <!-- AI AREA -->
-                    <div id="aiArea" class="hidden-section">
-                        <div style="border: 1px solid #e2e8f0; padding: 30px; border-radius: 20px; background: #fff;">
-                            <label>Problem Topic</label>
-                            <input type="text" id="aiTopic" placeholder="e.g. Recursion, Binary Search Trees">
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                                <div>
-                                    <label>Difficulty</label>
-                                    <select id="aiDifficulty">
-                                        <option value="Easy">Easy</option>
-                                        <option value="Medium" selected>Medium</option>
-                                        <option value="Hard">Hard</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label>Language Focus</label>
-                                    <select id="aiLanguage">
-                                        <option value="python">Python</option>
-                                        <option value="java">Java</option>
-                                        <option value="cpp">C++</option>
-                                    </select>
-                                </div>
+                <div id="createSection">
+                    <div class="content-section">
+                        <h3><i class="fas fa-cog"></i> 1. Contest Configuration</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                            <div>
+                                <label>Contest Name *</label>
+                                <input type="text" id="contestName" placeholder="e.g., Python Certification 2026">
                             </div>
-                            <button class="btn btn-primary" onclick="generateAIProblems()" id="aiGenBtn" style="width: 100%;">
-                                <i class="fas fa-magic"></i> Auto-Generate Problem Set
+                            <div>
+                                <label>Duration (minutes)</label>
+                                <input type="number" id="timeLimit" value="120">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="content-section">
+                        <h3><i class="fas fa-tasks"></i> 2. Problem Set Construction</h3>
+                        <div class="form-group" style="margin-bottom: 25px;">
+                            <label>Creation Method</label>
+                            <select id="methodSelect" onchange="toggleCreationMethod()" style="font-weight: 700; border-color: var(--primary);">
+                                <option value="manual">Manual Form (2 Sample, 5 Hidden TCs)</option>
+                                <option value="ai">Generative AI (Topic-based)</option>
+                                <option value="document">Document Mode (File Drag & Drop)</option>
+                            </select>
+                        </div>
+
+                        <div id="aiArea" class="hidden-section">
+                            <div style="border: 1px solid #e2e8f0; padding: 30px; border-radius: 20px; background: #fff;">
+                                <label>Problem Topic</label>
+                                <input type="text" id="aiTopic" placeholder="e.g. Recursion, Binary Search Trees">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                                    <div>
+                                        <label>Difficulty</label>
+                                        <select id="aiDifficulty">
+                                            <option value="Easy">Easy</option>
+                                            <option value="Medium" selected>Medium</option>
+                                            <option value="Hard">Hard</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label>Language Focus</label>
+                                        <select id="aiLanguage">
+                                            <option value="python">Python</option>
+                                            <option value="java">Java</option>
+                                            <option value="cpp">C++</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <button class="btn btn-primary" onclick="generateAIProblems()" id="aiGenBtn" style="width: 100%;">
+                                    <i class="fas fa-magic"></i> Auto-Generate Problem Set
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="documentArea" class="hidden-section">
+                            <div class="upload-area" id="dropZone" onclick="document.getElementById('fileInput').click()">
+                                <i class="fas fa-file-import fa-4x" style="color: var(--primary); margin-bottom: 15px;"></i>
+                                <p id="dropText" style="font-weight: 700; font-size: 18px;">Drag & Drop CSV/TXT Document</p>
+                                <input type="file" id="fileInput" hidden accept=".csv,.txt" onchange="handleFileSelect(this.files)">
+                            </div>
+                        </div>
+
+                        <div id="manualArea" style="border: 1px solid #e2e8f0; padding: 30px; border-radius: 20px; background: #fff;">
+                            <label>Problem Statement (Title)</label>
+                            <input type="text" id="qTitle" placeholder="Problem title here">
+                            <label>Description & Constraints</label>
+                            <textarea id="qDescription" placeholder="Enter problem statement..." rows="5"></textarea>
+                            
+                            <h4 style="color: var(--primary); margin: 20px 0 10px 0; font-weight: 800; font-size: 14px;">VISIBLE SAMPLE CASES (Exactly 2)</h4>
+                            <div class="tc-grid">
+                                <input type="text" id="sIn1" placeholder="S1 Input">
+                                <input type="text" id="sOut1" placeholder="S1 Output">
+                                <input type="text" id="sIn2" placeholder="S2 Input">
+                                <input type="text" id="sOut2" placeholder="S2 Output">
+                            </div>
+
+                            <h4 style="color: var(--danger); margin: 20px 0 10px 0; font-weight: 800; font-size: 14px;">SECRET HIDDEN CASES (Exactly 5)</h4>
+                            <div id="hiddenTestContainer">
+                                <div class="tc-grid"><input type="text" class="h-in" placeholder="Hidden 1 Input"><input type="text" class="h-out" placeholder="Hidden 1 Output"></div>
+                                <div class="tc-grid"><input type="text" class="h-in" placeholder="Hidden 2 Input"><input type="text" class="h-out" placeholder="Hidden 2 Output"></div>
+                                <div class="tc-grid"><input type="text" class="h-in" placeholder="Hidden 3 Input"><input type="text" class="h-out" placeholder="Hidden 3 Output"></div>
+                                <div class="tc-grid"><input type="text" class="h-in" placeholder="Hidden 4 Input"><input type="text" class="h-out" placeholder="Hidden 4 Output"></div>
+                                <div class="tc-grid"><input type="text" class="h-in" placeholder="Hidden 5 Input"><input type="text" class="h-out" placeholder="Hidden 5 Output"></div>
+                            </div>
+
+                            <button class="btn btn-success" onclick="addManualProblem()" style="width: 100%; height: 50px;">
+                                <i class="fas fa-save"></i> Add to Contest Problem List
                             </button>
                         </div>
-                    </div>
 
-                    <!-- DOCUMENT AREA (Pure File Drop) -->
-                    <div id="documentArea" class="hidden-section">
-                        <div class="upload-area" id="dropZone" onclick="document.getElementById('fileInput').click()">
-                            <i class="fas fa-file-import fa-4x" style="color: var(--primary); margin-bottom: 15px;"></i>
-                            <p id="dropText" style="font-weight: 700; font-size: 18px;">Drag & Drop CSV/TXT Document</p>
-                            <p style="color: #64748b; font-size: 13px; margin-top: 5px;">AI will parse and extract problem details and test cases automatically</p>
-                            <input type="file" id="fileInput" hidden accept=".csv,.txt" onchange="handleFileSelect(this.files)">
-                        </div>
-                    </div>
-
-                    <!-- MANUAL AREA (Strict TC counts) -->
-                    <div id="manualArea" style="border: 1px solid #e2e8f0; padding: 30px; border-radius: 20px; background: #fff;">
-                        <label>Problem Statement (Title)</label>
-                        <input type="text" id="qTitle" placeholder="Problem title here">
+                        <div id="problemListDisplay" style="margin-top: 30px;"></div>
                         
-                        <label>Description & Constraints</label>
-                        <textarea id="qDescription" placeholder="Enter problem statement, input/output formats, and constraints..." rows="5"></textarea>
-                        
-                        <h4 style="color: var(--primary); margin: 20px 0 10px 0; font-weight: 800; font-size: 14px;"><i class="fas fa-eye"></i> VISIBLE SAMPLE CASES (Exactly 2)</h4>
-                        <div class="tc-grid">
-                            <input type="text" id="sIn1" placeholder="S1 Input">
-                            <input type="text" id="sOut1" placeholder="S1 Output">
-                            <input type="text" id="sIn2" placeholder="S2 Input">
-                            <input type="text" id="sOut2" placeholder="S2 Output">
-                        </div>
-
-                        <h4 style="color: var(--danger); margin: 20px 0 10px 0; font-weight: 800; font-size: 14px;"><i class="fas fa-lock"></i> SECRET HIDDEN CASES (Exactly 5)</h4>
-                        <div id="hiddenTestContainer">
-                            <div class="tc-grid"><input type="text" class="h-in" placeholder="Hidden 1 Input"><input type="text" class="h-out" placeholder="Hidden 1 Output"></div>
-                            <div class="tc-grid"><input type="text" class="h-in" placeholder="Hidden 2 Input"><input type="text" class="h-out" placeholder="Hidden 2 Output"></div>
-                            <div class="tc-grid"><input type="text" class="h-in" placeholder="Hidden 3 Input"><input type="text" class="h-out" placeholder="Hidden 3 Output"></div>
-                            <div class="tc-grid"><input type="text" class="h-in" placeholder="Hidden 4 Input"><input type="text" class="h-out" placeholder="Hidden 4 Output"></div>
-                            <div class="tc-grid"><input type="text" class="h-in" placeholder="Hidden 5 Input"><input type="text" class="h-out" placeholder="Hidden 5 Output"></div>
-                        </div>
-
-                        <button class="btn btn-success" onclick="addManualProblem()" style="width: 100%; height: 50px;">
-                            <i class="fas fa-save"></i> Add to Contest Problem List
+                        <button class="btn btn-primary" onclick="launchContest()" id="launchBtn" style="margin-top: 25px; width: 100%; height: 65px; font-size: 18px; border-radius: 16px;">
+                            <i class="fas fa-rocket"></i> Finalize & Deploy Contest
                         </button>
                     </div>
+                </div>
 
-                    <div id="problemListDisplay" style="margin-top: 30px;"></div>
-                    
-                    <button class="btn btn-primary" onclick="launchContest()" id="launchBtn" style="margin-top: 25px; width: 100%; height: 65px; font-size: 18px; border-radius: 16px;">
-                        <i class="fas fa-rocket"></i> Finalize & Deploy Contest
-                    </button>
+                <div id="manageSection" class="hidden-section">
+                    <div class="content-section">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <h3><i class="fas fa-list"></i> Active Regular Contests</h3>
+                            <button class="btn btn-primary btn-sm" onclick="fetchContests()"><i class="fas fa-sync"></i> Refresh</button>
+                        </div>
+                        
+                        <table class="contest-table">
+                            <thead>
+                                <tr>
+                                    <th>Contest Name</th>
+                                    <th>Problems</th>
+                                    <th>Status</th>
+                                    <th>Created On</th>
+                                    <th style="text-align: right;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="contestTableBody">
+                                </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -233,6 +260,87 @@
 
         if (!token) window.location.href = 'index.html';
 
+        // Tab Switching Logic
+        function switchTab(tab) {
+            const createSec = document.getElementById('createSection');
+            const manageSec = document.getElementById('manageSection');
+            const navCreate = document.getElementById('navCreate');
+            const navManage = document.getElementById('navManage');
+
+            if(tab === 'create') {
+                createSec.classList.remove('hidden-section');
+                manageSec.classList.add('hidden-section');
+                navCreate.classList.add('active');
+                navManage.classList.remove('active');
+            } else {
+                createSec.classList.add('hidden-section');
+                manageSec.classList.remove('hidden-section');
+                navCreate.classList.remove('active');
+                navManage.classList.add('active');
+                fetchContests(); // Load contests when switching
+            }
+        }
+
+        async function fetchContests() {
+            const tbody = document.getElementById('contestTableBody');
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center"><div class="spinner"></div> Loading...</td></tr>';
+            
+            try {
+                const res = await fetch(`${API_URL}/moderator/contests`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const result = await res.json();
+                
+                if(result.success) {
+                    if(result.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 40px; color: #64748b;">No active contests found.</td></tr>';
+                        return;
+                    }
+                    
+                    tbody.innerHTML = result.data.map(c => `
+                        <tr class="contest-row">
+                            <td>
+                                <div style="font-weight:700">${c.title}</div>
+                                <div style="font-size:11px; color:#64748b">${c.contest_id}</div>
+                            </td>
+                            <td>${c.problems_count} Problems</td>
+                            <td><span class="status-badge status-active">${c.status}</span></td>
+                            <td>${new Date(c.created_at).toLocaleDateString()}</td>
+                            <td style="text-align: right;">
+                                <button class="btn btn-danger btn-sm" onclick="deleteContest('${c.contest_id}')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (e) {
+                showToast("Failed to fetch contests", "error");
+            }
+        }
+
+        async function deleteContest(id) {
+            if(!confirm("Are you sure you want to delete this contest? All student results for this contest will be lost.")) return;
+            
+            try {
+                const res = await fetch(`${API_URL}/moderator/contest/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const result = await res.json();
+                if(result.success) {
+                    showToast("Contest deleted successfully", "success");
+                    fetchContests();
+                } else {
+                    showToast(result.message, "error");
+                }
+            } catch (e) {
+                showToast("Error deleting contest", "error");
+            }
+        }
+
+        // --- Existing Functions below (toggleCreationMethod, generateAIProblems, launchContest, etc.) ---
+        
         function toggleCreationMethod() {
             const method = document.getElementById('methodSelect').value;
             const areas = {
@@ -240,36 +348,27 @@
                 ai: document.getElementById('aiArea'),
                 document: document.getElementById('documentArea')
             };
-            
             Object.keys(areas).forEach(key => {
                 if (key === method) {
-                    areas[key].style.display = 'block';
                     areas[key].classList.remove('hidden-section');
+                    areas[key].style.display = 'block';
                 } else {
-                    areas[key].style.display = 'none';
                     areas[key].classList.add('hidden-section');
+                    areas[key].style.display = 'none';
                 }
             });
         }
 
-        // AI Generation Logic
         async function generateAIProblems() {
             const topic = document.getElementById('aiTopic').value;
             if(!topic) return showToast("Please specify a topic", "error");
-            
             const btn = document.getElementById('aiGenBtn');
             btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Generating...';
-
             try {
                 const response = await fetch(`${API_URL}/moderator/generate-problems`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ 
-                        topic, 
-                        difficulty: document.getElementById('aiDifficulty').value,
-                        language: document.getElementById('aiLanguage').value,
-                        count: 5 
-                    })
+                    body: JSON.stringify({ topic, difficulty: document.getElementById('aiDifficulty').value, language: document.getElementById('aiLanguage').value, count: 5 })
                 });
                 const result = await response.json();
                 if(result.success) {
@@ -281,58 +380,12 @@
             finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-magic"></i> Auto-Generate Problem Set'; }
         }
 
-        // Drag & Drop Handling
-        const dropZone = document.getElementById('dropZone');
-        if (dropZone) {
-            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(e => {
-                dropZone.addEventListener(e, (evt) => { evt.preventDefault(); evt.stopPropagation(); });
-            });
-            dropZone.addEventListener('dragover', () => dropZone.classList.add('dragover'));
-            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-            dropZone.addEventListener('drop', (e) => {
-                dropZone.classList.remove('dragover');
-                handleFileSelect(e.dataTransfer.files);
-            });
-        }
-
-        function handleFileSelect(files) {
-            if (!files.length) return;
-            const file = files[0];
-            const reader = new FileReader();
-            document.getElementById('dropText').innerHTML = `<div class="spinner"></div> Parsing ${file.name}...`;
-
-            reader.onload = async (ev) => {
-                const content = ev.target.result;
-                await processDocumentWithAI(content, file.name);
-            };
-            reader.readAsText(file);
-        }
-
-        async function processDocumentWithAI(content, fileName) {
-            try {
-                const res = await fetch(`${API_URL}/moderator/process-document`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ documentContent: content, language: 'python' })
-                });
-                const result = await res.json();
-                if (result.success && result.data.problems) {
-                    currentProblems = [...currentProblems, ...result.data.problems];
-                    renderProblems();
-                    showToast(`Found ${result.data.problems.length} problems in file`, 'success');
-                } else { showToast('Invalid document format', 'error'); }
-            } catch (e) { showToast('Server connection failed', 'error'); }
-            finally { document.getElementById('dropText').innerText = "Drag & Drop another or click to upload"; }
-        }
-
-        // Manual Form Implementation
         function addManualProblem() {
             const title = document.getElementById('qTitle').value;
             const desc = document.getElementById('qDescription').value;
             if(!title || !desc) return showToast('Title and description are mandatory', 'error');
 
             const testCases = [];
-            // Samples
             const sIn1 = document.getElementById('sIn1').value;
             const sOut1 = document.getElementById('sOut1').value;
             const sIn2 = document.getElementById('sIn2').value;
@@ -341,7 +394,6 @@
             if(sIn1 && sOut1) testCases.push({ input: sIn1, output: sOut1, is_sample: true });
             if(sIn2 && sOut2) testCases.push({ input: sIn2, output: sOut2, is_sample: true });
 
-            // Hidden
             const hIns = document.querySelectorAll('.h-in');
             const hOuts = document.querySelectorAll('.h-out');
             let hCount = 0;
@@ -359,8 +411,6 @@
             currentProblems.push({ title, description: desc, test_cases: testCases, score: 20 });
             renderProblems();
             showToast('Problem successfully added', 'success');
-            
-            // Clear inputs
             document.getElementById('qTitle').value = '';
             document.getElementById('qDescription').value = '';
             document.querySelectorAll('#manualArea input').forEach(i => i.value = '');
@@ -371,18 +421,16 @@
             if(currentProblems.length === 0) return container.innerHTML = '';
             container.innerHTML = currentProblems.map((p, i) => `
                 <div class="problem-item">
-                    <div><strong>${i+1}. ${p.title}</strong> <small style="color:#64748b; margin-left:10px;">(${p.test_cases.length} TCs)</small></div>
-                    <button class="btn btn-danger" style="padding: 10px" onclick="currentProblems.splice(${i},1);renderProblems();"><i class="fas fa-trash"></i></button>
+                    <div><strong>${i+1}. ${p.title}</strong></div>
+                    <button class="btn btn-danger" onclick="currentProblems.splice(${i},1);renderProblems();"><i class="fas fa-trash"></i></button>
                 </div>`).join('');
         }
 
         async function launchContest() {
             const name = document.getElementById('contestName').value;
             if(!name || currentProblems.length === 0) return showToast('Name and problems required', 'error');
-            
             const btn = document.getElementById('launchBtn');
             btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Deploying...';
-
             try {
                 const response = await fetch(`${API_URL}/moderator/create-contest`, {
                     method: 'POST',
@@ -392,35 +440,13 @@
                 const data = await response.json();
                 if(data.success) {
                     showToast('Contest successfully deployed!', 'success');
-                    setTimeout(() => window.location.href = 'moderator.html', 1500);
+                    switchTab('manage');
+                    currentProblems = [];
+                    renderProblems();
+                    document.getElementById('contestName').value = '';
                 }
             } catch (e) { showToast('Deployment error', 'error'); }
             finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-rocket"></i> Finalize & Deploy Contest'; }
-        }
-
-        // CSV Export: Downloads ACTUAL numeric scores from StudentResults table
-        async function exportActualScores() {
-            try {
-                showToast("Compiling score data...", "success");
-                const res = await fetch(`${API_URL}/moderator/all-student-results`, { headers: { 'Authorization': `Bearer ${token}` } });
-                const result = await res.json();
-
-                if (result.success && result.data.results.length > 0) {
-                    let csv = "Student Email,Name,Actual Score,Status,Solved\n";
-                    result.data.results.forEach(row => {
-                        csv += `"${row.student_email}","${row.student_name || 'N/A'}",${row.total_score || 0},"${row.status || 'Active'}",${row.problems_solved || 0}\n`;
-                    });
-
-                    const blob = new Blob([csv], { type: 'text/csv' });
-                    const url = window.URL.createObjectURL(blob);
-                    const link = document.createElement("a");
-                    link.setAttribute("href", url);
-                    link.setAttribute("download", `Numeric_Scores_${new Date().toLocaleDateString()}.csv`);
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                } else { showToast("No student scores available yet", "error"); }
-            } catch (e) { showToast("Export failed", "error"); }
         }
 
         function showToast(msg, type) {
@@ -432,8 +458,6 @@
         }
 
         function logout() { localStorage.clear(); window.location.href = 'index.html'; }
-        
-        toggleCreationMethod();
     </script>
 </body>
 </html>
