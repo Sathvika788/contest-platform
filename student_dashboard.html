@@ -35,7 +35,6 @@
             color: var(--text-main); 
         }
         
-        /* Glassmorphism Sidebar */
         .sidebar { 
             width: 270px; 
             background: var(--sidebar-bg); 
@@ -88,7 +87,6 @@
         .logout-btn { margin-top: auto; color: #f87171; }
         .logout-btn:hover { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
 
-        /* Main Content */
         .main-content { flex: 1; padding: 40px 60px; margin-left: 270px; width: calc(100% - 270px); }
         
         .welcome-card { 
@@ -107,7 +105,6 @@
         .welcome-card h2 { font-size: 28px; font-weight: 800; color: var(--primary-dark); }
         .welcome-card p { color: var(--text-muted); margin-top: 5px; }
 
-        /* Tabs Styling */
         .tabs { 
             display: flex; 
             gap: 10px;
@@ -131,7 +128,6 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         }
 
-        /* Contest Grid */
         .contest-grid { 
             display: grid; 
             grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); 
@@ -188,17 +184,29 @@
         }
         .btn-join:hover { background: var(--primary-dark); box-shadow: 0 8px 15px rgba(26, 115, 232, 0.3); }
 
-        /* Leaderboard Table */
+        /* Leaderboard Styles */
         .leaderboard-container {
             background: var(--white);
             border-radius: 20px;
             overflow: hidden;
             box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            width: 100%;
         }
         .leaderboard-table { width: 100%; border-collapse: collapse; }
         .leaderboard-table th { background: #f8fafc; padding: 18px; text-align: left; color: var(--text-muted); font-size: 13px; text-transform: uppercase; font-weight: 700; }
         .leaderboard-table td { padding: 18px; border-bottom: 1px solid #f1f5f9; font-size: 15px; }
         .rank-1 { background: #fffbeb; }
+        
+        /* Score Badge */
+        .score-badge {
+            background: #e0f2fe;
+            color: var(--primary);
+            padding: 6px 14px;
+            border-radius: 10px;
+            font-weight: 800;
+            font-size: 14px;
+            display: inline-block;
+        }
 
         .no-contests { text-align: center; padding: 60px; color: var(--text-muted); font-weight: 500; grid-column: 1/-1; }
     </style>
@@ -229,7 +237,7 @@
             <div id="contestsCount" style="font-weight: 700; color: var(--primary);">0 Contests Found</div>
         </div>
 
-        <div class="tabs">
+        <div class="tabs" id="tabContainer">
             <div id="tab-all" class="tab active" onclick="changeTab('all')">Progression</div>
             <div id="tab-regular" class="tab" onclick="changeTab('regular')">Regular</div>
             <div id="tab-debug" class="tab" onclick="changeTab('debug')">Debugging</div>
@@ -286,35 +294,61 @@
 
         async function renderContests() {
             const grid = document.getElementById('contestGrid');
+            const tabContainer = document.getElementById('tabContainer');
             let filteredList = [];
 
             if (currentTab === 'leaderboard') {
-                grid.innerHTML = '<div class="no-contests">Loading world rankings...</div>';
+                tabContainer.style.display = 'none';
+                grid.innerHTML = '<div class="no-contests">Loading rankings...</div>';
                 try {
                     const res = await fetch(`${API_URL}/student/leaderboard`, { headers: { 'Authorization': `Bearer ${token}` } });
                     const leaderboardData = await res.json();
-                    const data = leaderboardData.data || [];
                     
+                    const data = leaderboardData.data || (Array.isArray(leaderboardData) ? leaderboardData : []);
+                    
+                    if (data.length === 0) {
+                        grid.innerHTML = '<div class="no-contests">No students ranked yet.</div>';
+                        return;
+                    }
+
+                    // Leaderboard mapping with Score column
                     grid.innerHTML = `
                         <div class="leaderboard-container">
                         <table class="leaderboard-table">
                             <thead>
-                                <tr><th>Rank</th><th>Student</th><th>College</th><th>Score</th></tr>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Student</th>
+                                    <th>College</th>
+                                    <th style="text-align: center;">Score</th>
+                                </tr>
                             </thead>
                             <tbody>
                                 ${data.map((s, i) => `
                                     <tr class="${i === 0 ? 'rank-1' : ''}">
                                         <td>${i + 1}</td>
-                                        <td><strong>${s.name}</strong></td>
-                                        <td>${s.college}</td>
-                                        <td><span style="color:var(--primary); font-weight:800;">${s.totalScore}</span></td>
+                                        <td><strong>${s.name || s.student_email || 'N/A'}</strong></td>
+                                        <td>${s.college || 'N/A'}</td>
+                                        <td style="text-align: center;">
+                                            <span class="score-badge">
+                                                ${s.totalScore !== undefined ? s.totalScore : 0}
+                                            </span>
+                                        </td>
                                     </tr>`).join('')}
                             </tbody>
                         </table></div>`;
+                    
+                    document.getElementById('contestsCount').textContent = `${data.length} Ranked Participants`;
                     return;
-                } catch (e) { grid.innerHTML = '<div class="no-contests">Leaderboard unavailable.</div>'; return; }
+                } catch (e) { 
+                    console.error("Leaderboard render error:", e);
+                    grid.innerHTML = '<div class="no-contests">Leaderboard unavailable at the moment.</div>'; 
+                    return; 
+                }
             }
 
+            // Normal Contest View
+            tabContainer.style.display = 'flex';
             if (currentTab === 'all') {
                 filteredList = progressionRules.map(rule => {
                     const regResult = studentResults[rule.normal_contest_id];
