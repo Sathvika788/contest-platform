@@ -953,114 +953,123 @@ app.post('/api/moderator/process-document', verifyToken, async (req, res) => {
     }
 });
 // Extract debugging problems from document
+// Extract debugging problems from document (Strict 2 Sample + 5 Hidden)
 app.post('/api/moderator/process-debug-document', verifyToken, async (req, res) => {
     try {
-        const { documentId, documentContent, language } = req.body;
+        const { documentContent, language } = req.body;
         
-        let content = documentContent;
-        
-        if (documentId && !documentContent) {
-            const { Item } = await client.send(new GetItemCommand({
-                TableName: "Documents",
-                Key: ddbMarshall({ document_id: documentId })
-            }));
-            
-            if (!Item) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Document not found"
-                });
-            }
-            
-            const document = unmarshall(Item);
-            content = document.content;
-        }
-        
-        if (!process.env.GROQ_API_KEY) {
-            return res.status(500).json({
-                success: false,
-                message: "AI service is not configured"
+        if (!documentContent) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Document content is required" 
             });
         }
         
+        if (!process.env.GROQ_API_KEY) {
+            return res.status(500).json({ 
+                success: false, 
+                message: "AI service (Groq) is not configured in environment variables" 
+            });
+        }
+
         console.log("Processing document for debugging problems...");
         
         const chatCompletion = await groq.chat.completions.create({
             messages: [
                 {
                     role: "system",
-                    content: `You are a debugging problem extractor. Extract code snippets with intentional bugs from the document.
+                    content: `You are a debugging problem extractor. Extract code snippets with intentional bugs from the provided text.
                     
-                    Return ONLY a valid JSON object with key "problems" containing debugging problem objects.
+                    Return ONLY a valid JSON object with a key "problems" containing an array.
                     
-                    Each debugging problem must have:
+                    CRITICAL REQUIREMENT: Each problem MUST contain a "test_cases" array with EXACTLY 7 objects:
+                    - 2 objects where "is_sample": true
+                    - 5 objects where "is_sample": false
+                    
+                    Each problem object must have:
                     - title (string)
-                    - description (string) - what the code should do vs what's wrong
-                    - buggy_code (string) - code with intentional bug
-                    - input (string) - sample input for testing
-                    - output (string) - expected correct output
-                    - hints (array of strings) - clues to find the bug
-                    - explanation (string) - brief explanation of the bug
-                    - difficulty (string)
-                    - score (number, default: 20)
-                    
-                    Look for code examples that can be modified to have common bugs:
-                    1. Off-by-one errors
-                    2. Missing initialization
-                    3. Incorrect loop conditions
-                    4. Wrong variable names
-                    5. Logic errors
-                    6. Syntax issues
-                    7. Edge case handling
-                    
-                    Make the bugs realistic and educational.`
+                    - description (string)
+                    - buggy_code (string)
+                    - input (string - a default sample input)
+                    - output (string - the expected correct output)
+                    - score (number, default 20)
+                    - difficulty (string: "Easy", "Medium", "Hard")
+                    - test_cases (array of 7 objects with "input", "output", and "is_sample" boolean)`
                 },
                 {
                     role: "user",
-                    content: `Extract debugging problems from this document. Focus on ${language || 'Python'} code:
+                    content: `Extract debugging problems for ${language || 'python'} from the following text:
                     
-                    ${content.substring(0, 8000)}
-                    
-                    Create realistic debugging challenges.`
+                    ${documentContent.substring(0, 8000)}`
                 }
             ],
             model: "llama-3.3-70b-versatile",
             response_format: { type: "json_object" },
-            temperature: 0.4
+            temperature: 0.3
         });
         
-        const text = chatCompletion.choices[0]?.message?.content || "";
+        const text = chatCompletion.choices[0]?.message?.content || "{}";
         
         try {
             const parsed = JSON.parse(text);
-            
+            let problems = [];
+
+            // Handle different potential JSON structures from AI
             if (parsed.problems && Array.isArray(parsed.problems)) {
-                res.json({
-                    success: true,
-                    data: {
-                        problems: parsed.problems,
-                        count: parsed.problems.length,
-                        documentId: documentId
-                    }
-                });
-            } else {
-                throw new Error("Invalid response format");
+                problems = parsed.problems;
+            } else if (Array.isArray(parsed)) {
+                problems = parsed;
             }
+
+            // SANITIZATION: This block fixes the 'filter' of undefined error
+            const sanitizedProblems = problems.map(p => {
+                // Ensure test_cases is always an array, even if AI misses it
+                let tcs = Array.isArray(p.test_cases) ? p.test_cases : [];
+                
+                // Fallback: If AI provided a single input/output but no array, create the array
+                if (tcs.length === 0 && p.input && p.output) {
+                    tcs = [
+                        { input: p.input, output: p.output, is_sample: true },
+                        { input: p.input, output: p.output, is_sample: true },
+                        { input: p.input, output: p.output, is_sample: false },
+                        { input: p.input, output: p.output, is_sample: false },
+                        { input: p.input, output: p.output, is_sample: false },
+                        { input: p.input, output: p.output, is_sample: false },
+                        { input: p.input, output: p.output, is_sample: false }
+                    ];
+                }
+
+                return {
+                    ...p,
+                    title: p.title || "Untitled Debugging Problem",
+                    test_cases: tcs, // Guaranteed array for the frontend .filter()
+                    score: p.score || 20,
+                    difficulty: p.difficulty || "Medium"
+                };
+            });
+            
+            res.json({
+                success: true,
+                data: {
+                    problems: sanitizedProblems,
+                    count: sanitizedProblems.length
+                }
+            });
+            
         } catch (parseErr) {
-            console.error("Parse Error:", parseErr);
-            res.status(500).json({
-                success: false,
-                message: "Failed to parse AI response",
-                suggestion: "Try with a different document or format"
+            console.error("JSON Parse Error:", parseErr.message);
+            res.status(500).json({ 
+                success: false, 
+                message: "Failed to parse AI response format" 
             });
         }
         
     } catch (err) {
-        console.error("Process Debug Document Error:", err);
-        res.status(500).json({
-            success: false,
-            message: "Error processing document for debugging",
-            error: err.message
+        console.error("Process Debug Document Error:", err.message);
+        res.status(500).json({ 
+            success: false, 
+            message: "Error processing document", 
+            error: err.message 
         });
     }
 });
