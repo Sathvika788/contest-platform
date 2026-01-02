@@ -302,31 +302,59 @@
         }
 
         async function loadContest() {
-            try {
-                const res = await fetch(`${API_URL}/student/debug-contest/${contestId}`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                const result = await res.json();
-                if (result.success) {
-                    contestData = result.data;
-                    renderSidebar();
-                    if (contestData.problems.length > 0) selectProblem(0);
-                    document.getElementById('loadingScreen').style.display = 'none';
-                    document.getElementById('scoreBadge').textContent = `Score: ${contestData.student_progress?.total_score || 0}`;
-                }
-            } catch (e) { console.error(e); }
+    try {
+        const res = await fetch(`${API_URL}/student/debug-contest/${contestId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const result = await res.json();
+        
+        if (result.success) {
+            contestData = result.data;
+
+            // Use the limit from contestData or default to 2
+            const maxAllowed = contestData.max_attempts || 2;
+
+            // Check if any single problem has reached the limit without being solved
+            const hasExhaustedAttempts = contestData.problems.some(p => 
+                (p.attempts_taken >= maxAllowed && !p.passed)
+            );
+
+            if (hasExhaustedAttempts) {
+                alert("Maximum attempts reached for one or more bugs. Contest locked.");
+                window.location.href = 'student_dashboard.html';
+                return;
+            }
+
+            // If not locked, render the workspace
+            renderSidebar();
+            if (contestData.problems.length > 0) selectProblem(0);
+            document.getElementById('loadingScreen').style.display = 'none';
+            document.getElementById('scoreBadge').textContent = `Score: ${contestData.student_progress?.total_score || 0}`;
         }
+    } catch (e) { 
+        console.error(e); 
+        window.location.href = 'student_dashboard.html';
+    }
+}
 
         function renderSidebar() {
     const list = document.getElementById('problemList');
+    
+    // Get max attempts from data, fallback to 2 if not defined
+    const maxAttempts = contestData.max_attempts || 2; 
+
     list.innerHTML = contestData.problems.map((p, i) => {
-        // Correctly calculate locked state for the list view
-        const isLocked = (p.attempts_taken >= 2 || p.passed);
+        const taken = p.attempts_taken || 0;
+        const left = maxAttempts - taken;
+        
+        // A problem is locked if it's passed OR if no attempts are left
+        const isLocked = (p.passed || left <= 0);
+
         return `
             <div class="problem-item ${selectedIndex === i ? 'active' : ''}" onclick="selectProblem(${i})">
                 <strong style="font-size:14px;">${isLocked ? '🔒 ' : ''}Bug ${i + 1}: ${p.title}</strong>
                 <div style="font-size: 11px; opacity: 0.8; margin-top:5px;">
-                    ${p.passed ? '✅ Solved' : (isLocked ? 'Locked (Max Attempts)' : 'Attempts: ' + (2 - (p.attempts_taken || 0)) + ' left')}
+                    ${p.passed ? '✅ Solved' : (isLocked ? 'Locked (Max Attempts)' : 'Attempts: ' + left + ' left')}
                 </div>
             </div>`;
     }).join('');
@@ -336,45 +364,51 @@
     selectedIndex = i;
     const p = contestData.problems[i];
     
-    // Logic: Lock if problem is passed OR if attempts taken is 2 or more
+    // 1. Logic: Lock if problem is passed OR if attempts taken is 2 or more
+    const maxAllowed = 2; 
     const attemptsTaken = p.attempts_taken || 0;
-    const attemptsLeft = Math.max(0, 2 - attemptsTaken);
-    const isLocked = attemptsTaken >= 2 || p.passed;
+    const attemptsLeft = Math.max(0, maxAllowed - attemptsTaken);
+    const isLocked = (attemptsTaken >= maxAllowed || p.passed);
 
+    // 2. Update Header & Badges
     document.getElementById('currentProblemTitle').textContent = p.title;
     document.getElementById('attemptBadge').textContent = `Attempts: ${attemptsLeft} Left`;
-    
-    // Change badge color based on attempts left
     document.getElementById('attemptBadge').style.background = isLocked ? "var(--danger)" : "var(--warning)";
     
-    // Lock the UI elements immediately
+    // 3. Disable/Enable Editor and Buttons
     editor.setOption("readOnly", isLocked);
     document.getElementById('submitBtn').disabled = isLocked;
     document.getElementById('runBtn').disabled = isLocked;
 
-    // Visual cues for disabled buttons
+    // Apply visual transparency to disabled buttons
     document.getElementById('submitBtn').style.opacity = isLocked ? "0.5" : "1";
     document.getElementById('runBtn').style.opacity = isLocked ? "0.5" : "1";
 
-    // Filter and render sample cases
+    // 4. Filter and render sample cases
     const samplesHTML = p.test_cases ? p.test_cases.filter(tc => tc.is_sample).map((tc, idx) => `
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; border-radius: 8px; margin-top: 10px;">
             <div style="font-size: 11px; font-weight: 800; color: #64748b;">SAMPLE ${idx + 1}</div>
             <div style="font-size: 12px; margin-top: 5px;"><strong>In:</strong> ${tc.input} | <strong>Out:</strong> ${tc.output}</div>
         </div>`).join('') : '<p>No samples.</p>';
 
+    // 5. Build and Update the Problem Details Panel
     document.getElementById('problemDescription').innerHTML = `
         <h3 style="color:var(--primary)">Task Description</h3>
         <p style="margin: 20px 0; line-height:1.6;">${p.description || 'Fix the logic error.'}</p>
+        
         <div style="background: ${isLocked ? (p.passed ? '#e8f5e9' : '#ffebee') : '#e3f2fd'}; padding: 15px; border-radius: 12px; margin-bottom:20px;">
-            <strong>Status:</strong> ${p.passed ? '✅ Solved' : (attemptsTaken >= 2 ? '❌ Locked (Max attempts reached)' : 'Available')}
+            <strong>Status:</strong> ${p.passed ? '✅ Solved' : (attemptsTaken >= maxAllowed ? '❌ Question Locked (Max attempts reached)' : 'Available')}
         </div>
-        <h4>Sample Cases:</h4> ${samplesHTML}`;
+        
+        <h4>Sample Cases:</h4> 
+        ${samplesHTML}`;
     
+    // 6. Load Code into Editor
     editor.setValue(p.buggy_code || "");
-    renderSidebar(); // Refresh sidebar to show lock icons
+    
+    // 7. Refresh Sidebar to update lock icons/labels
+    renderSidebar(); 
 }
-
        async function runCode() {
     const out = document.getElementById('outputBox');
     out.textContent = "Running test...";
@@ -423,14 +457,16 @@
 }
 
         async function submitSolution() {
-    // Disable button immediately to prevent double-clicks during request
     const subBtn = document.getElementById('submitBtn');
-    subBtn.disabled = true;
+    subBtn.disabled = true; // Prevent double-clicking
 
     try {
         const res = await fetch(`${API_URL}/student/submit-debug-solution`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            headers: { 
+                'Content-Type': 'application/json', 
+                'Authorization': `Bearer ${token}` 
+            },
             body: JSON.stringify({ 
                 contest_id: contestId, 
                 problem_index: selectedIndex, 
@@ -440,31 +476,54 @@
         const result = await res.json();
         
         if (result.success) {
-            // Update the local data object with new attempt count and pass status
-            contestData.problems[selectedIndex].attempts_taken = result.data.attempts_taken;
-            if (result.data.passed) {
-                contestData.problems[selectedIndex].passed = true;
+            // Update local data with results from server
+            const problem = contestData.problems[selectedIndex];
+            problem.attempts_taken = result.data.attempts_taken;
+            problem.passed = result.data.passed;
+
+            // Update UI Badges
+            document.getElementById('scoreBadge').textContent = `Score: ${result.data.student_progress?.total_score || 0}`;
+
+            // LOGIC: Check if this was the 2nd attempt and it failed
+            const maxAllowed = 2; 
+            if (!problem.passed && problem.attempts_taken >= maxAllowed) {
+                // Show the "Contest Ended" modal for this problem
+                document.getElementById('modalTitle').textContent = "❌ Locked";
+                document.getElementById('modalMessage').textContent = "Maximum attempts reached for this bug. Redirecting to dashboard...";
+                document.getElementById('resultModal').classList.add('active');
+                
+                // Refresh the sidebar to show the lock icon immediately
+                renderSidebar();
+
+                // Redirect after a short delay so the user can see the message
+                setTimeout(() => {
+                    window.location.href = 'student_dashboard.html';
+                }, 3000);
+                return;
             }
 
-            // RE-RENDER UI to apply the "Locked" state immediately
-            renderSidebar(); 
-            selectProblem(selectedIndex);
-
-            // Show the result modal
+            // If not locked, just show standard result modal and refresh UI
             document.getElementById('modalTitle').textContent = result.data.passed ? "✅ Bug Resolved!" : "❌ Failed";
             document.getElementById('modalMessage').textContent = result.data.message;
             document.getElementById('resultModal').classList.add('active');
+            
+            renderSidebar(); 
+            selectProblem(selectedIndex);
         } else {
-            // Re-enable if server error occurred
-            subBtn.disabled = false;
             alert(result.message || "Submission failed");
+            subBtn.disabled = false;
         }
     } catch (e) { 
-        console.error("Submit error:", e); 
+        console.error("Submit error:", e);
         subBtn.disabled = false;
     }
 }
 
+window.addEventListener('beforeunload', (event) => {
+    // This warns the user that refreshing might lock their progress
+    event.preventDefault();
+    event.returnValue = 'Warning: Refreshing or leaving this page may lock your contest attempts.';
+});
         function closeModal() { document.getElementById('resultModal').classList.remove('active'); }
         window.onload = init;
     </script>
