@@ -18,6 +18,7 @@
             --white: #ffffff;
             --success: #10b981;
             --danger: #ef4444;
+            --warning: #f59e0b;
         }
 
         * { box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; padding: 0; }
@@ -77,9 +78,9 @@
         .btn-sm { padding: 8px 16px; font-size: 12px; border-radius: 8px; }
         .btn-primary { background: var(--primary); color: white; }
         .btn-success { background: var(--success); color: white; }
+        .btn-warning { background: var(--warning); color: white; }
         .btn-danger { background: var(--danger); color: white; }
 
-        /* Manage Table Styles */
         .contest-table { width: 100%; border-collapse: separate; border-spacing: 0 8px; }
         .contest-table th { text-align: left; padding: 12px 20px; color: var(--text-muted); font-size: 12px; text-transform: uppercase; }
         .contest-row { background: white; transition: 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
@@ -90,6 +91,7 @@
 
         .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
         .status-active { background: #ecfdf5; color: #10b981; }
+        .status-held { background: #fef3c7; color: #d97706; }
 
         .tc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #f1f5f9; padding: 15px; border-radius: 12px; margin-bottom: 15px; }
         .upload-area { border: 2px dashed var(--primary); padding: 50px 30px; text-align: center; border-radius: 20px; background: rgba(99, 102, 241, 0.03); cursor: pointer; transition: 0.3s; margin-bottom: 20px; }
@@ -110,7 +112,7 @@
                 <img src="logo.jpg" alt="Logo" class="logo-img">
                 <div>
                     <h1>Advanced Contest Creator</h1>
-                    <p style="color: #94a3b8; font-size: 13px;">Enterprise-grade contest management</p>
+                    <p style="color: #94a3b8; font-size: 13px;">Manage, Edit, and Control Contest Status</p>
                 </div>
             </div>
         </div>
@@ -118,7 +120,7 @@
         <div class="content-grid">
             <div class="sidebar">
                 <a class="nav-item" href="moderator.html"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-                <a class="nav-item active" id="navCreate" onclick="switchTab('create')"><i class="fas fa-plus-circle"></i> Create Contest</a>
+                <a class="nav-item active" id="navCreate" onclick="switchTab('create')"><i class="fas fa-plus-circle"></i> Create/Edit Contest</a>
                 <a class="nav-item" id="navManage" onclick="switchTab('manage')"><i class="fas fa-tasks"></i> Manage Contests</a>
                 <a class="nav-item" href="create-debug-contest.html"><i class="fas fa-bug"></i> Debug Contest</a>
                 <a class="nav-item" id="exportBtn" onclick="exportActualScores()"><i class="fas fa-file-export"></i> Download Actual Scores</a>
@@ -128,7 +130,10 @@
             <div class="main-content">
                 <div id="createSection">
                     <div class="content-section">
-                        <h3><i class="fas fa-cog"></i> 1. Contest Configuration</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h3><i class="fas fa-cog"></i> 1. Contest Configuration</h3>
+                            <button id="cancelEditBtn" class="btn btn-danger btn-sm hidden-section" onclick="resetForm()">Cancel Edit</button>
+                        </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                             <div>
                                 <label>Contest Name *</label>
@@ -256,11 +261,13 @@
         const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
         const API_URL = isLocal ? "http://localhost:5000/api" : "http://3.108.67.225:5000/api";
         const token = localStorage.getItem('token');
+        
         let currentProblems = [];
+        let isEditMode = false;
+        let editingContestId = null;
 
         if (!token) window.location.href = 'index.html';
 
-        // Tab Switching Logic
         function switchTab(tab) {
             const createSec = document.getElementById('createSection');
             const manageSec = document.getElementById('manageSection');
@@ -277,7 +284,7 @@
                 manageSec.classList.remove('hidden-section');
                 navCreate.classList.remove('active');
                 navManage.classList.add('active');
-                fetchContests(); // Load contests when switching
+                fetchContests();
             }
         }
 
@@ -297,31 +304,111 @@
                         return;
                     }
                     
-                    tbody.innerHTML = result.data.map(c => `
-                        <tr class="contest-row">
-                            <td>
-                                <div style="font-weight:700">${c.title}</div>
-                                <div style="font-size:11px; color:#64748b">${c.contest_id}</div>
-                            </td>
-                            <td>${c.problems_count} Problems</td>
-                            <td><span class="status-badge status-active">${c.status}</span></td>
-                            <td>${new Date(c.created_at).toLocaleDateString()}</td>
-                            <td style="text-align: right;">
-                                <button class="btn btn-danger btn-sm" onclick="deleteContest('${c.contest_id}')">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </td>
-                        </tr>
-                    `).join('');
+                    tbody.innerHTML = result.data.map(c => {
+                        const isHeld = c.status === 'held';
+                        const statusClass = isHeld ? 'status-held' : 'status-active';
+                        
+                        return `
+                            <tr class="contest-row">
+                                <td>
+                                    <div style="font-weight:700">${c.title}</div>
+                                    <div style="font-size:11px; color:#64748b">${c.contest_id}</div>
+                                </td>
+                                <td>${c.problems_count} Problems</td>
+                                <td><span class="status-badge ${statusClass}">${c.status}</span></td>
+                                <td>${new Date(c.created_at).toLocaleDateString()}</td>
+                                <td style="text-align: right; display: flex; gap: 8px; justify-content: flex-end;">
+                                    <button class="btn ${isHeld ? 'btn-success' : 'btn-warning'} btn-sm" 
+                                            onclick="toggleContestStatus('${c.contest_id}', '${isHeld ? 'active' : 'held'}')"
+                                            title="${isHeld ? 'Release' : 'Hold'}">
+                                        <i class="fas ${isHeld ? 'fa-play' : 'fa-pause'}"></i>
+                                    </button>
+                                    <button class="btn btn-primary btn-sm" onclick="editContest('${c.contest_id}')" title="Edit">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-danger btn-sm" onclick="deleteContest('${c.contest_id}')" title="Delete">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
                 }
             } catch (e) {
                 showToast("Failed to fetch contests", "error");
             }
         }
 
-        async function deleteContest(id) {
-            if(!confirm("Are you sure you want to delete this contest? All student results for this contest will be lost.")) return;
+        async function toggleContestStatus(id, newStatus) {
+            try {
+                const res = await fetch(`${API_URL}/moderator/contest/${id}/status`, {
+                    method: 'PATCH',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}` 
+                    },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    showToast(result.message, "success");
+                    fetchContests();
+                } else {
+                    showToast(result.message, "error");
+                }
+            } catch (e) {
+                showToast("Connection failed", "error");
+            }
+        }
+
+        async function editContest(id) {
+            try {
+                const res = await fetch(`${API_URL}/moderator/contest/${id}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const result = await res.json();
+                
+                if(result.success) {
+                    const contest = result.data;
+                    isEditMode = true;
+                    editingContestId = id;
+
+                    switchTab('create');
+                    
+                    document.getElementById('contestName').value = contest.name;
+                    document.getElementById('timeLimit').value = contest.metadata?.time_limit || 120;
+                    currentProblems = contest.problems || [];
+                    renderProblems();
+
+                    document.getElementById('cancelEditBtn').classList.remove('hidden-section');
+                    const launchBtn = document.getElementById('launchBtn');
+                    launchBtn.innerHTML = '<i class="fas fa-save"></i> Update & Save Changes';
+                    launchBtn.className = 'btn btn-success';
+                    launchBtn.style.marginTop = '25px';
+                    launchBtn.style.width = '100%';
+                    launchBtn.style.height = '65px';
+                }
+            } catch (e) {
+                showToast("Error loading contest data", "error");
+            }
+        }
+
+        function resetForm() {
+            isEditMode = false;
+            editingContestId = null;
+            currentProblems = [];
+            document.getElementById('contestName').value = '';
+            document.getElementById('timeLimit').value = '120';
+            document.getElementById('cancelEditBtn').classList.add('hidden-section');
+            renderProblems();
             
+            const launchBtn = document.getElementById('launchBtn');
+            launchBtn.innerHTML = '<i class="fas fa-rocket"></i> Finalize & Deploy Contest';
+            launchBtn.className = 'btn btn-primary';
+        }
+
+        async function deleteContest(id) {
+            if(!confirm("Delete this contest? All progress will be lost.")) return;
             try {
                 const res = await fetch(`${API_URL}/moderator/contest/${id}`, {
                     method: 'DELETE',
@@ -329,18 +416,14 @@
                 });
                 const result = await res.json();
                 if(result.success) {
-                    showToast("Contest deleted successfully", "success");
+                    showToast("Contest deleted", "success");
                     fetchContests();
-                } else {
-                    showToast(result.message, "error");
                 }
             } catch (e) {
-                showToast("Error deleting contest", "error");
+                showToast("Delete failed", "error");
             }
         }
 
-        // --- Existing Functions below (toggleCreationMethod, generateAIProblems, launchContest, etc.) ---
-        
         function toggleCreationMethod() {
             const method = document.getElementById('methodSelect').value;
             const areas = {
@@ -410,7 +493,7 @@
 
             currentProblems.push({ title, description: desc, test_cases: testCases, score: 20 });
             renderProblems();
-            showToast('Problem successfully added', 'success');
+            showToast('Problem added', 'success');
             document.getElementById('qTitle').value = '';
             document.getElementById('qDescription').value = '';
             document.querySelectorAll('#manualArea input').forEach(i => i.value = '');
@@ -429,25 +512,76 @@
         async function launchContest() {
             const name = document.getElementById('contestName').value;
             if(!name || currentProblems.length === 0) return showToast('Name and problems required', 'error');
+            
             const btn = document.getElementById('launchBtn');
-            btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Deploying...';
+            btn.disabled = true; 
+            btn.innerHTML = isEditMode ? '<div class="spinner"></div> Updating...' : '<div class="spinner"></div> Deploying...';
+
+            const url = isEditMode ? `${API_URL}/moderator/contest/${editingContestId}` : `${API_URL}/moderator/create-contest`;
+            const method = isEditMode ? 'PATCH' : 'POST';
+
             try {
-                const response = await fetch(`${API_URL}/moderator/create-contest`, {
-                    method: 'POST',
+                const response = await fetch(url, {
+                    method: method,
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ name, problems: currentProblems, time_limit: document.getElementById('timeLimit').value })
+                    body: JSON.stringify({ 
+                        name, 
+                        problems: currentProblems, 
+                        time_limit: document.getElementById('timeLimit').value 
+                    })
                 });
                 const data = await response.json();
                 if(data.success) {
-                    showToast('Contest successfully deployed!', 'success');
+                    showToast(isEditMode ? 'Contest updated!' : 'Contest deployed!', 'success');
+                    resetForm();
                     switchTab('manage');
-                    currentProblems = [];
-                    renderProblems();
-                    document.getElementById('contestName').value = '';
+                } else {
+                    showToast(data.message, "error");
                 }
-            } catch (e) { showToast('Deployment error', 'error'); }
-            finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-rocket"></i> Finalize & Deploy Contest'; }
+            } catch (e) { showToast('Operation error', 'error'); }
+            finally { btn.disabled = false; btn.innerHTML = isEditMode ? '<i class="fas fa-save"></i> Update & Save Changes' : '<i class="fas fa-rocket"></i> Finalize & Deploy Contest'; }
         }
+
+        async function handleFileSelect(files) {
+            if (files.length === 0) return;
+            const file = files[0];
+            const reader = new FileReader();
+            const dropText = document.getElementById('dropText');
+            dropText.innerHTML = `<div class="spinner"></div> Processing ${file.name}...`;
+
+            reader.onload = async (e) => {
+                const content = e.target.result;
+                try {
+                    const response = await fetch(`${API_URL}/moderator/process-document`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ documentContent: content, language: 'python' })
+                    });
+                    const result = await response.json();
+                    if (result.success) {
+                        currentProblems = [...currentProblems, ...result.data.problems];
+                        renderProblems();
+                        showToast(`Extracted ${result.data.count} problems`, "success");
+                    }
+                } catch (err) { showToast("Upload failed", "error"); }
+                finally { dropText.innerHTML = `Drag & Drop CSV/TXT Document`; }
+            };
+            reader.readAsText(file);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const dropZone = document.getElementById('dropZone');
+            if (!dropZone) return;
+            ['dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); });
+            });
+            dropZone.addEventListener('dragover', () => dropZone.classList.add('dragover'));
+            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+            dropZone.addEventListener('drop', (e) => {
+                dropZone.classList.remove('dragover');
+                handleFileSelect(e.dataTransfer.files);
+            });
+        });
 
         function showToast(msg, type) {
             const t = document.createElement('div');
@@ -456,76 +590,6 @@
             document.getElementById('toastContainer').appendChild(t);
             setTimeout(() => t.remove(), 3000);
         }
-
-        // 1. The function that handles the file after it's picked or dropped
-async function handleFileSelect(files) {
-    if (files.length === 0) return;
-    
-    const file = files[0];
-    const reader = new FileReader();
-    const dropText = document.getElementById('dropText');
-
-    // Show loading state in the UI
-    dropText.innerHTML = `<div class="spinner"></div> Processing ${file.name}...`;
-
-    reader.onload = async (e) => {
-        const content = e.target.result;
-        
-        try {
-            // This matches the endpoint you created in server.js
-            const response = await fetch(`${API_URL}/moderator/process-document`, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json', 
-                    'Authorization': `Bearer ${token}` 
-                },
-                body: JSON.stringify({ 
-                    documentContent: content,
-                    language: document.getElementById('aiLanguage')?.value || 'python',
-                    difficulty: 'Medium'
-                })
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                // Add the AI-extracted problems to your global list
-                currentProblems = [...currentProblems, ...result.data.problems];
-                renderProblems();
-                showToast(`Successfully extracted ${result.data.count} problems`, "success");
-            } else {
-                showToast(result.message || "Failed to process document", "error");
-            }
-        } catch (err) {
-            console.error("Upload Error:", err);
-            showToast("Connection to server failed", "error");
-        } finally {
-            dropText.innerHTML = `Drag & Drop CSV/TXT Document`;
-        }
-    };
-
-    reader.readAsText(file);
-}
-
-// 2. Add actual "Drag and Drop" listeners so the UI reacts to files being hovered
-document.addEventListener('DOMContentLoaded', () => {
-    const dropZone = document.getElementById('dropZone');
-    if (!dropZone) return;
-
-    ['dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-        });
-    });
-
-    dropZone.addEventListener('dragover', () => dropZone.classList.add('dragover'));
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-    dropZone.addEventListener('drop', (e) => {
-        dropZone.classList.remove('dragover');
-        handleFileSelect(e.dataTransfer.files);
-    });
-});
 
         function logout() { localStorage.clear(); window.location.href = 'index.html'; }
     </script>
