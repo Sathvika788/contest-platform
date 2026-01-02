@@ -2845,6 +2845,46 @@ app.get('/api/moderator/recent-contests', verifyToken, async (req, res) => {
     }
 });
 
+app.post('/api/student/test-code', verifyToken, async (req, res) => {
+    try {
+        const { contest_id, problem_index, code, language } = req.body;
+        const problemIndex = parseInt(problem_index);
+
+        const { Item } = await client.send(new GetItemCommand({
+            TableName: "Contests",
+            Key: ddbMarshall({ contest_id: contest_id })
+        }));
+        
+        if (!Item) return res.status(404).json({ success: false, message: "Contest not found" });
+        const contest = unmarshall(Item);
+        const problem = contest.problems[problemIndex];
+
+        // Filter ONLY sample cases
+        const sampleTestCases = problem.test_cases.filter(tc => tc.is_sample === true);
+        const compilerLang = language || 'python';
+
+        let sampleResults = [];
+        for (let i = 0; i < sampleTestCases.length; i++) {
+            const tc = sampleTestCases[i];
+            const exec = await runOnCompiler(compilerLang, code, tc.input);
+            const passed = exec.output.trim() === tc.output.trim();
+            sampleResults.push({
+                test_case: i + 1,
+                passed: passed,
+                output: exec.output,
+                expected: tc.output
+            });
+        }
+
+        res.json({
+            success: true,
+            data: { sample_results: sampleResults }
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // 4. Get progression statistics
 app.get('/api/moderator/progression-stats', verifyToken, async (req, res) => {
     try {
