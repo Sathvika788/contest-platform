@@ -378,17 +378,18 @@
         }
 
         function populateSelect(id, items, defaultText) {
-            const select = document.getElementById(id);
-            select.innerHTML = `<option value="">Select ${defaultText}</option>`;
-            if (items && items.length > 0) {
-                items.forEach(item => {
-                    const opt = document.createElement('option');
-                    opt.value = item.contest_id;
-                    opt.textContent = item.title || item.name;
-                    select.appendChild(opt);
-                });
-            }
-        }
+    const select = document.getElementById(id);
+    select.innerHTML = `<option value="">Select ${defaultText}</option>`;
+    if (items && items.length > 0) {
+        items.forEach(item => {
+            const opt = document.createElement('option');
+            // FIX: Use item.id for regular contests and item.contest_id for debug contests
+            opt.value = item.id || item.contest_id; 
+            opt.textContent = item.title || item.name;
+            select.appendChild(opt);
+        });
+    }
+}
 
         async function loadRecentContests() {
             try {
