@@ -11,7 +11,7 @@
     
     <style>
         :root {
-            --primary: #1a73e8; /* Reverted to Original Blue */
+            --primary: #1a73e8;
             --primary-dark: #0d47a1;
             --slate-900: #0f172a;
             --slate-800: #1e293b;
@@ -38,7 +38,6 @@
             overflow: hidden;
         }
 
-        /* --- Sidebar Styling --- */
         .sidebar {
             width: 320px;
             background: var(--slate-800);
@@ -92,7 +91,6 @@
             box-shadow: 0 10px 20px rgba(26, 115, 232, 0.2);
         }
 
-        /* --- Main Content Workspace --- */
         .main-content {
             flex: 1;
             display: flex;
@@ -183,7 +181,6 @@
         .btn-submit { background: var(--primary); color: white; flex: 1; justify-content: center; }
         .btn-submit:hover { background: var(--primary-dark); transform: translateY(-2px); }
 
-        /* Modal Styles */
         .modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.9); display: none; align-items: center; justify-content: center; z-index: 2000; }
         .modal.active { display: flex; }
         .modal-content { background: white; padding: 35px; border-radius: 24px; max-width: 500px; width: 90%; text-align: center; }
@@ -255,18 +252,18 @@
 
                 <div class="controls">
                     <button class="btn btn-run" onclick="runCode()">
-                        <i class="fas fa-play"></i> Test My Fix
+                        <i class="fas fa-vial"></i> Run Sample Tests
                     </button>
                     <button class="btn btn-submit" onclick="submitSolution()">
-                        <i class="fas fa-check-circle"></i> Submit Fix
+                        <i class="fas fa-cloud-upload-alt"></i> Submit Final Fix
                     </button>
                 </div>
 
                 <div id="outputContainer">
                     <div style="background: var(--slate-800); color: white; padding: 10px 20px; border-radius: 15px 15px 0 0; font-size: 11px; font-weight: 700;">
-                        DEBUG CONSOLE
+                        TEST CASE RESULTS
                     </div>
-                    <div id="outputBox" class="output-box">Output will appear here...</div>
+                    <div id="outputBox" class="output-box">Run samples to see if your fix works...</div>
                 </div>
             </div>
         </div>
@@ -276,15 +273,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
     
     <script>
-        // Detect if we are running locally or on the deployed server
-const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-
-// Set API_URL dynamically
-const API_URL = isLocal 
-    ? "http://localhost:5000/api" 
-    : "http://3.108.67.225:5000/api";
-
-console.log("Connected to API at:", API_URL);
+        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+        const API_URL = isLocal ? "http://localhost:5000/api" : "http://3.108.67.225:5000/api";
+        
         const urlParams = new URLSearchParams(window.location.search);
         const contestId = urlParams.get('id');
         const token = localStorage.getItem('token');
@@ -324,6 +315,7 @@ console.log("Connected to API at:", API_URL);
                     renderList();
                     if (contestData.problems.length > 0) selectProblem(0);
                     document.getElementById('loadingScreen').style.display = 'none';
+                    document.getElementById('scoreBadge').textContent = `Score: ${contestData.student_progress?.total_score || 0}`;
                 }
             } catch (e) { console.error(e); }
         }
@@ -333,7 +325,9 @@ console.log("Connected to API at:", API_URL);
             list.innerHTML = contestData.problems.map((p, i) => `
                 <div class="problem-item ${selectedIndex === i ? 'active' : ''}" onclick="selectProblem(${i})">
                     <strong style="font-size:14px;">Bug ${i + 1}: ${p.title}</strong>
-                    <div style="font-size: 11px; opacity: 0.8; margin-top:5px;">Weight: ${p.score || 20} pts</div>
+                    <div style="font-size: 11px; opacity: 0.8; margin-top:5px;">
+                        ${p.passed ? '✅ Solved' : 'Weight: ' + (p.score || 20) + ' pts'}
+                    </div>
                 </div>
             `).join('');
         }
@@ -342,16 +336,29 @@ console.log("Connected to API at:", API_URL);
             selectedIndex = i;
             const p = contestData.problems[i];
             document.getElementById('currentProblemTitle').textContent = p.title;
+            
+            // Displays both Sample test cases if they exist
+            const samplesHTML = p.test_cases ? p.test_cases.filter(tc => tc.is_sample).map((tc, idx) => `
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; border-radius: 8px; margin-top: 10px; color: var(--slate-800);">
+                    <div style="font-size: 11px; font-weight: 800; color: #64748b;">SAMPLE ${idx + 1}</div>
+                    <div style="font-size: 12px; margin-top: 5px;"><strong>In:</strong> ${tc.input || 'N/A'}</div>
+                    <div style="font-size: 12px;"><strong>Out:</strong> ${tc.output}</div>
+                </div>
+            `).join('') : '<p style="color: #64748b;">No sample cases provided.</p>';
+
             document.getElementById('problemDescription').innerHTML = `
                 <h3 style="color:var(--primary)">Bug Investigation</h3>
-                <p style="margin: 20px 0; font-size:15px; line-height:1.6;">${p.description || 'Analyze the code and fix the logic errors.'}</p>
-                <div style="background: #e3f2fd; border-left: 4px solid var(--primary); padding: 20px; border-radius: 12px; margin-bottom:20px;">
-                    <strong style="color:var(--primary-dark)">The Objective:</strong><br>
-                    Correct the provided source code to ensure it generates the expected output for all test cases.
+                <p style="margin: 20px 0; font-size:15px; line-height:1.6; color: var(--slate-800);">${p.description || 'Analyze the code and fix the logic errors.'}</p>
+                
+                <div style="background: #e3f2fd; border-left: 4px solid var(--primary); padding: 15px; border-radius: 12px; margin-bottom:20px; color: var(--slate-800);">
+                    <strong style="color:var(--primary-dark)">Objective:</strong><br>
+                    Correct the source code. Your final score will be calculated based on 5 hidden test cases.
                 </div>
-                <h4>Input Provided:</h4>
-                <pre>${p.input || 'Standard competitive input'}</pre>
+
+                <h4 style="color: var(--slate-800);">Sample Cases (Visible):</h4>
+                ${samplesHTML}
             `;
+            
             editor.setValue(p.buggy_code || "");
             renderList();
             editor.refresh();
@@ -359,40 +366,73 @@ console.log("Connected to API at:", API_URL);
 
         async function runCode() {
             const outputBox = document.getElementById('outputBox');
-            outputBox.textContent = "Processing debug tests...";
+            outputBox.textContent = "Running sample test cases...";
             outputBox.style.color = "#e2e8f0";
 
             try {
                 const response = await fetch(`${API_URL}/student/run-debug-test`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ contest_id: contestId, problem_index: selectedIndex, fixed_code: editor.getValue() })
+                    body: JSON.stringify({ 
+                        contest_id: contestId, 
+                        problem_index: selectedIndex, 
+                        fixed_code: editor.getValue() 
+                    })
                 });
 
                 const result = await response.json();
                 if (result.success) {
                     const data = result.data;
-                    outputBox.innerHTML = `Status: ${data.message}\nOutput: ${data.output}\nExpected: ${data.expected}\n${data.error ? 'Error: ' + data.error : ''}`;
-                    outputBox.style.color = data.passed ? "var(--success)" : "var(--danger)";
+                    // Displays detailed feedback for each sample case
+                    if(data.sample_results && Array.isArray(data.sample_results)) {
+                        outputBox.innerHTML = data.sample_results.map(res => 
+                            `Sample ${res.test_case}: ${res.passed ? '✅ PASSED' : '❌ FAILED'}\n   Input: ${res.input}\n   Expected: ${res.expected}\n   Actual: ${res.actual}\n`
+                        ).join('\n');
+                        const allPassed = data.sample_results.every(r => r.passed);
+                        outputBox.style.color = allPassed ? "var(--success)" : "var(--danger)";
+                    } else {
+                        outputBox.innerHTML = `Status: ${data.message}\nOutput: ${data.output}\nExpected: ${data.expected}`;
+                        outputBox.style.color = data.passed ? "var(--success)" : "var(--danger)";
+                    }
                 }
-            } catch (e) { outputBox.textContent = "Server Error: " + e.message; }
+            } catch (e) { outputBox.textContent = "Execution Error: " + e.message; }
         }
 
         async function submitSolution() {
+            const outputBox = document.getElementById('outputBox');
+            outputBox.textContent = "Submitting and running hidden tests...";
+            
             try {
                 const response = await fetch(`${API_URL}/student/submit-debug-solution`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ contest_id: contestId, problem_index: selectedIndex, fixed_code: editor.getValue() })
+                    body: JSON.stringify({ 
+                        contest_id: contestId, 
+                        problem_index: selectedIndex, 
+                        fixed_code: editor.getValue() 
+                    })
                 });
 
                 const result = await response.json();
                 if (result.success) {
                     const data = result.data;
-                    document.getElementById('modalTitle').textContent = data.passed ? "✅ Bug Resolved!" : "❌ Errors Remaining";
-                    document.getElementById('modalMessage').innerHTML = `<p>${data.message}</p><p style="margin-top:10px; font-weight:800;">Earned: ${data.score} Points</p>`;
+                    document.getElementById('modalTitle').textContent = data.passed ? "✅ Bug Resolved!" : "❌ Hidden Tests Failed";
+                    document.getElementById('modalMessage').innerHTML = `
+                        <p style="color: var(--slate-700);">${data.message}</p>
+                        <div style="margin-top:15px; background:#f1f5f9; padding:15px; border-radius:12px; color: var(--slate-800);">
+                            <strong>Hidden Cases Passed:</strong> ${data.hidden_passed || 0} / 5
+                        </div>
+                        <p style="margin-top:15px; font-weight:800; font-size:18px; color:var(--primary)">Points: ${data.score}</p>
+                    `;
                     document.getElementById('resultModal').classList.add('active');
                     document.getElementById('scoreBadge').textContent = `Score: ${data.student_progress?.total_score || 0}`;
+                    
+                    if(data.passed) {
+                        contestData.problems[selectedIndex].passed = true;
+                        renderList();
+                    }
+                } else {
+                    alert(result.message || "Submission failed.");
                 }
             } catch (e) { alert("Submission failed."); }
         }
