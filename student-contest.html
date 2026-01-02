@@ -19,40 +19,53 @@
             --text-main: #f8fafc;
             --success: #10b981;
             --danger: #ef4444;
+            --warning: #f59e0b;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; }
         body { background-color: var(--slate-900); color: var(--text-main); display: flex; height: 100vh; overflow: hidden; }
 
-        /* Sidebar Styling */
         .sidebar { width: 320px; background: var(--slate-800); border-right: 1px solid var(--slate-700); display: flex; flex-direction: column; flex-shrink: 0; }
         .sidebar-header { padding: 25px; border-bottom: 1px solid var(--slate-700); }
         .logo-img { height: 40px; border-radius: 8px; margin-right: 10px; }
         .problem-list { flex: 1; overflow-y: auto; padding: 15px; }
-        .problem-item { padding: 15px; margin-bottom: 10px; border-radius: 12px; cursor: pointer; background: var(--slate-700); transition: 0.3s; border: 1px solid transparent; }
+        .problem-item { padding: 15px; margin-bottom: 10px; border-radius: 12px; cursor: pointer; background: var(--slate-700); transition: 0.3s; border: 1px solid transparent; display: flex; align-items: center; gap: 10px; }
         .problem-item.active { background: var(--primary); border-color: white; }
-        .status-dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 8px; }
-        .status-passed { background: var(--success); }
+        .status-dot { height: 10px; width: 10px; border-radius: 50%; flex-shrink: 0; }
+        .status-passed { background: var(--success); box-shadow: 0 0 8px var(--success); }
         .status-pending { background: #94a3b8; }
 
-        /* Main Workspace */
         .main-content { flex: 1; display: flex; flex-direction: column; background: #f1f5f9; color: var(--slate-900); }
         .top-bar { padding: 15px 30px; background: white; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
         .content-area { flex: 1; display: flex; padding: 20px; gap: 20px; overflow: hidden; }
         
         .problem-details { flex: 1; overflow-y: auto; background: white; padding: 30px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-        .editor-container { flex: 1.4; display: flex; flex-direction: column; gap: 15px; }
         
-        .CodeMirror { flex: 1; border-radius: 15px; font-size: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .editor-container { flex: 1.4; display: flex; flex-direction: column; gap: 15px; height: 100%; }
+        #editor { flex: 1; border-radius: 15px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.1); background: #282a36; min-height: 300px; }
+        .CodeMirror { height: 100% !important; font-size: 14px; }
         
-        .sample-box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 10px; margin-top: 10px; font-family: monospace; font-size: 13px; }
+        .sample-box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 10px; margin-top: 10px; font-family: 'Courier New', monospace; font-size: 13px; white-space: pre-wrap; }
         .controls { display: flex; gap: 12px; }
         .btn { padding: 12px 24px; border-radius: 10px; border: none; font-weight: 700; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px; }
-        .btn-run { background: #e2e8f0; color: var(--slate-800); }
-        .btn-submit { background: var(--primary); color: white; flex: 1; justify-content: center; }
+        .btn-secondary { background: #e2e8f0; color: var(--slate-800); justify-content: center; }
+        .btn-secondary:hover { background: #cbd5e1; }
+        .btn-submit { background: var(--primary); color: white; }
+        .btn-submit:hover { background: var(--primary-dark); transform: translateY(-1px); }
+        .btn-end { background: var(--danger); color: white; }
+        .btn-end:hover { background: #dc2626; }
 
         .output-box { background: var(--slate-900); color: #e2e8f0; padding: 20px; border-radius: 0 0 15px 15px; font-family: monospace; height: 180px; overflow-y: auto; border-top: 2px solid var(--primary); }
         
+        .timer-box { display: flex; align-items: center; gap: 10px; background: #fff1f2; padding: 8px 15px; border-radius: 10px; color: var(--danger); border: 1px solid #fecaca; font-weight: 800; }
+        .timer-box.warning { background: #fffbeb; color: var(--warning); border-color: #fef3c7; }
+        .timer-box.critical { animation: pulse 1s infinite; background: #fee2e2; }
+
+        .custom-input-area { margin-top: 10px; display: none; }
+        .custom-input-area textarea { width: 100%; height: 80px; padding: 10px; border-radius: 8px; border: 1px solid #cbd5e1; font-family: monospace; }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+
         .loading-screen { position: fixed; inset: 0; background: var(--slate-900); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; }
         .spinner { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -61,20 +74,23 @@
 <body>
     <div id="loadingScreen" class="loading-screen">
         <div class="spinner"></div>
-        <p style="margin-top: 15px; color: #94a3b8;">Syncing Workspace...</p>
+        <p id="loadingText" style="margin-top: 15px; color: #94a3b8;">Syncing Workspace...</p>
     </div>
 
     <div class="sidebar">
         <div class="sidebar-header">
             <div style="display: flex; align-items: center;">
-                <img src="logo.jpg" alt="Logo" class="logo-img">
+                <img src="logo.jpg" alt="Logo" class="logo-img" onerror="this.src='https://via.placeholder.com/40'">
                 <span style="font-size: 20px; font-weight: 800; color: var(--primary);">ContestPro</span>
             </div>
         </div>
         <div class="problem-list" id="problemList"></div>
-        <div style="padding: 20px; border-top: 1px solid var(--slate-700);">
-            <button onclick="window.location.href='student_dashboard.html'" class="btn btn-run" style="width: 100%; justify-content: center;">
-                <i class="fas fa-sign-out-alt"></i> Exit Contest
+        <div style="padding: 20px; border-top: 1px solid var(--slate-700); display: flex; flex-direction: column; gap: 10px;">
+            <button onclick="endContest()" class="btn btn-end">
+                <i class="fas fa-flag-checkered"></i> Finish Contest
+            </button>
+            <button onclick="exitContest()" class="btn btn-secondary">
+                <i class="fas fa-sign-out-alt"></i> Exit IDE
             </button>
         </div>
     </div>
@@ -82,8 +98,17 @@
     <div class="main-content">
         <div class="top-bar">
             <h2 id="currentProblemTitle">Select a Problem</h2>
-            <div id="scoreDisplay" style="background: #f1f5f9; padding: 8px 15px; border-radius: 10px; font-weight: 800; color: var(--primary);">
-                Score: 0 / 0
+            <div style="display: flex; gap: 15px; align-items: center;">
+                <div id="scoreDisplay" style="background: #f1f5f9; padding: 8px 15px; border-radius: 10px; font-weight: 800; color: var(--primary);">
+                    Score: 0 / 0
+                </div>
+                <div id="timerContainer" class="timer-box">
+                    <i class="fas fa-clock"></i>
+                    <span id="timerText">--:--</span>
+                </div>
+                <button class="btn btn-submit" id="mainSubmitBtn" onclick="submitSolution()">
+                    <i class="fas fa-cloud-upload-alt"></i> Submit Problem
+                </button>
             </div>
         </div>
         
@@ -102,22 +127,29 @@
                         <option value="cpp">C++</option>
                         <option value="java">Java</option>
                     </select>
+                    <label style="font-size: 13px; color: var(--slate-700); display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                        <input type="checkbox" id="toggleCustomInput" onchange="toggleInputArea()"> Custom Input
+                    </label>
+                </div>
+
+                <div class="custom-input-area" id="inputArea">
+                    <textarea id="customStdin" placeholder="Enter standard input here..."></textarea>
                 </div>
 
                 <div id="editor"></div>
 
                 <div class="controls">
-                    <button class="btn btn-run" onclick="runSampleTests()">
-                        <i class="fas fa-vials"></i> Run 2 Samples
+                    <button class="btn btn-secondary" style="flex: 1;" onclick="runCustomCode()">
+                        <i class="fas fa-play"></i> Run Code
                     </button>
-                    <button class="btn btn-submit" onclick="submitSolution()">
-                        <i class="fas fa-cloud-upload-alt"></i> Submit for Final Grading
+                    <button class="btn btn-secondary" style="flex: 1;" onclick="runSampleTests()">
+                        <i class="fas fa-vials"></i> Run Samples
                     </button>
                 </div>
 
                 <div id="outputContainer">
                     <div style="background: var(--slate-800); color: white; padding: 10px 20px; border-radius: 15px 15px 0 0; font-size: 11px; font-weight: 800;">
-                        TEST CASE CONSOLE
+                        OUTPUT CONSOLE
                     </div>
                     <div id="outputBox" class="output-box">Execution results will appear here...</div>
                 </div>
@@ -127,7 +159,8 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
-    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/clike/clike.min.js"></script>
+
     <script>
         const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
         const API_URL = isLocal ? "http://localhost:5000/api" : "http://3.108.67.225:5000/api";
@@ -139,16 +172,30 @@
         let contestData = null;
         let selectedProblemIndex = null;
         let editor = null;
+        let timerInterval = null;
 
         async function init() {
             if (!token) { window.location.href = 'index.html'; return; }
-            
+            if (!contestId) { window.location.href = 'student_dashboard.html'; return; }
+
             editor = CodeMirror(document.getElementById("editor"), {
                 lineNumbers: true,
                 theme: "dracula",
                 mode: "python",
                 indentUnit: 4,
-                lineWrapping: true
+                lineWrapping: true,
+                autofocus: true
+            });
+
+            document.getElementById('langSelect').addEventListener('change', (e) => {
+                const mode = e.target.value === 'python' ? 'python' : 'text/x-c++src';
+                editor.setOption("mode", mode);
+            });
+
+            editor.on('change', () => {
+                if (selectedProblemIndex !== null) {
+                    localStorage.setItem(`draft_${contestId}_${selectedProblemIndex}`, editor.getValue());
+                }
             });
 
             await loadContest();
@@ -160,47 +207,142 @@
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const result = await response.json();
-                
                 if (result.success) {
                     contestData = result.data;
                     renderProblemList();
-                    if (contestData.problems.length > 0) selectProblem(0);
-                    document.getElementById('loadingScreen').style.display = 'none';
                     updateScoreDisplay();
+                    if (selectedProblemIndex === null && contestData.problems.length > 0) selectProblem(0);
+                    document.getElementById('loadingScreen').style.display = 'none';
+                    if (!timerInterval) startContestTimer();
                 }
-            } catch (e) { console.error("Load Error:", e); }
+            } catch (e) { setTimeout(loadContest, 3000); }
         }
+
+        function toggleInputArea() {
+            const area = document.getElementById('inputArea');
+            area.style.display = document.getElementById('toggleCustomInput').checked ? 'block' : 'none';
+            editor.refresh();
+        }
+
+        async function runCustomCode() {
+            const code = editor.getValue();
+            const stdin = document.getElementById('customStdin').value;
+            const language = document.getElementById('langSelect').value;
+            const outputBox = document.getElementById('outputBox');
+
+            if (!code.trim()) return;
+            outputBox.innerHTML = 'Executing...';
+
+            try {
+                const res = await fetch(`${API_URL}/student/execute`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ source_code: code, language_id: getLangId(language), stdin })
+                });
+                const result = await res.json();
+                outputBox.innerHTML = `<div style="color:#10b981">Output:</div>${result.decodedStdout || result.decodedStderr || 'No output'}`;
+            } catch (e) { outputBox.innerHTML = 'Execution failed.'; }
+        }
+
+        function getLangId(lang) {
+            return lang === 'python' ? 71 : lang === 'cpp' ? 54 : 62;
+        }
+
+        async function runSampleTests() {
+            const code = editor.getValue();
+            const language = document.getElementById('langSelect').value;
+            const outputBox = document.getElementById('outputBox');
+            if (!code.trim()) return;
+            outputBox.innerHTML = 'Running samples...';
+            try {
+                const res = await fetch(`${API_URL}/student/test-code`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ contest_id: contestId, problem_index: selectedProblemIndex, code, language })
+                });
+                const result = await res.json();
+                let html = '<strong>SAMPLE RESULTS:</strong><br>';
+                result.data.sample_results.forEach(r => {
+                    html += `<span style="color:${r.passed ? '#10b981' : '#ef4444'}">${r.passed ? '✓' : '✗'} Case ${r.test_case}</span><br>`;
+                });
+                outputBox.innerHTML = html;
+            } catch (e) { outputBox.innerHTML = 'Test failed.'; }
+        }
+
+        async function submitSolution() {
+            const code = editor.getValue();
+            const language = document.getElementById('langSelect').value;
+            if (!code.trim()) return;
+            if (!confirm("Submit this problem? Hidden cases will be checked.")) return;
+
+            try {
+                const res = await fetch(`${API_URL}/student/submit-solution`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ contest_id: contestId, problem_index: selectedProblemIndex, code, language })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    alert(`Score Updated! Passed ${result.data.hidden_passed}/5 Hidden Cases.`);
+                    await loadContest();
+                }
+            } catch (e) { alert("Submission error."); }
+        }
+
+        async function endContest() {
+    if (!confirm("Are you sure you want to finish? You won't be able to edit further.")) return;
+
+    try {
+        // 1. Fetch progression rules to see if this contest unlocks a debug contest
+        const response = await fetch(`${API_URL}/student/progression-rules`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const result = await response.json();
+        
+        // 2. Find if a rule exists where this current contest is the prerequisite
+        const activeRule = (result.data || []).find(r => r.normal_contest_id === contestId);
+
+        if (activeRule) {
+            // Use the student's progress data already loaded in the workspace
+            const currentScore = contestData.student_progress.total_score || 0;
+            const maxScore = contestData.student_progress.max_score || 1; // Avoid division by zero
+            const percentage = (currentScore / maxScore) * 100;
+
+            // 3. Check if they met the required passing percentage (e.g., 70%)
+            if (percentage >= activeRule.passing_score) {
+                alert(`Congratulations! You scored ${percentage.toFixed(1)}% and unlocked the Debugging Challenge.`);
+                window.location.href = `student-debug.html?id=${activeRule.debug_contest_id}`;
+                return;
+            } else {
+                alert(`Contest Finished. You scored ${percentage.toFixed(1)}%, which is below the ${activeRule.passing_score}% required to unlock the debugging stage.`);
+            }
+        }
+        
+        // 4. Fallback: If no rule exists or score is too low, go to dashboard
+        window.location.href = 'student_dashboard.html';
+        
+    } catch (e) {
+        console.error("Navigation error:", e);
+        window.location.href = 'student_dashboard.html';
+    }
+}
+
 
         function selectProblem(index) {
             selectedProblemIndex = index;
             const prob = contestData.problems[index];
             document.getElementById('currentProblemTitle').innerText = prob.title;
+            renderProblemList();
             
-            // Logic to handle 2 Sample Test Cases from the backend
             const samples = prob.test_cases ? prob.test_cases.filter(tc => tc.is_sample) : [];
-            
-            let samplesHtml = '';
+            let sHtml = '';
             samples.forEach((tc, i) => {
-                samplesHtml += `
-                    <div style="margin-top:15px;">
-                        <strong>Sample Case ${i+1}</strong>
-                        <div class="sample-box"><strong>Input:</strong><br>${tc.input}</div>
-                        <div class="sample-box"><strong>Output:</strong><br>${tc.output}</div>
-                    </div>`;
+                sHtml += `<div class="sample-box"><strong>Input ${i+1}:</strong><br>${tc.input}<br><strong>Output:</strong><br>${tc.output}</div>`;
             });
 
-            document.getElementById('problemDescription').innerHTML = `
-                <h3 style="margin-bottom:10px; color:var(--primary-dark)">${prob.title}</h3>
-                <p style="white-space: pre-wrap; margin-bottom:20px; line-height:1.6;">${prob.description}</p>
-                <div style="background:#eef2ff; border-left:4px solid var(--primary); padding:15px; border-radius:8px; margin-bottom:20px;">
-                    <strong>Note:</strong> Your solution must pass 2 visible samples and 5 hidden test cases for full credit.
-                </div>
-                ${samplesHtml}
-            `;
-            
-            document.querySelectorAll('.problem-item').forEach((item, idx) => {
-                item.classList.toggle('active', idx === index);
-            });
+            document.getElementById('problemDescription').innerHTML = `<h3>${prob.title} (${prob.score} pts)</h3><p>${prob.description}</p>${sHtml}`;
+            editor.setValue(localStorage.getItem(`draft_${contestId}_${index}`) || "");
+            setTimeout(() => editor.refresh(), 50);
         }
 
         function renderProblemList() {
@@ -208,76 +350,30 @@
             list.innerHTML = contestData.problems.map((p, i) => `
                 <div class="problem-item ${selectedProblemIndex === i ? 'active' : ''}" onclick="selectProblem(${i})">
                     <span class="status-dot ${p.passed ? 'status-passed' : 'status-pending'}"></span>
-                    <div style="flex:1">
-                        <div style="font-weight:700; font-size:14px; color:white;">${p.title}</div>
-                        <div style="font-size:11px; color:#94a3b8;">Value: ${p.score || 20} pts</div>
-                    </div>
+                    <div><strong>${p.title}</strong><br><small>${p.score} pts</small></div>
                 </div>
             `).join('');
         }
 
         function updateScoreDisplay() {
             const prog = contestData.student_progress;
-            document.getElementById('scoreDisplay').innerText = `Total Score: ${prog.total_score} / ${prog.max_score}`;
+            document.getElementById('scoreDisplay').innerText = `Score: ${prog.total_score} / ${prog.max_score}`;
         }
 
-        // Logic to run 2 Sample Cases for immediate feedback
-        async function runSampleTests() {
-            const code = editor.getValue();
-            const language = document.getElementById('langSelect').value;
-            const outputBox = document.getElementById('outputBox');
-            
-            if (!code.trim()) return alert("Write some code first!");
-            outputBox.innerHTML = '<div class="spinner" style="width:15px; height:15px; border-width:2px;"></div> Running samples...';
-            
-            try {
-                const response = await fetch(`${API_URL}/student/test-code`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ contest_id: contestId, problem_index: selectedProblemIndex, code, language })
-                });
-                
-                const result = await response.json();
-                if (result.success) {
-                    let html = `<div style="color:var(--primary); font-weight:800; margin-bottom:10px;">SAMPLE TEST RESULTS:</div>`;
-                    result.data.sample_results.forEach(r => {
-                        const color = r.passed ? '#10b981' : '#ef4444';
-                        html += `
-                            <div style="border-left: 3px solid ${color}; padding-left:10px; margin-bottom:10px;">
-                                <div style="color:${color}; font-weight:bold;">Case ${r.test_case}: ${r.passed ? 'PASSED' : 'FAILED'}</div>
-                                <div style="font-size:12px; margin-top:3px;">Actual: ${r.output || '(empty)'}</div>
-                                <div style="font-size:12px;">Expected: ${r.expected}</div>
-                            </div>`;
-                    });
-                    outputBox.innerHTML = html;
-                }
-            } catch (e) { outputBox.innerHTML = "Connection Error."; }
+        function startContestTimer() {
+            const limit = contestData.metadata?.time_limit || 60;
+            const start = new Date(contestData.created_at).getTime();
+            timerInterval = setInterval(() => {
+                const left = (limit * 60000) - (Date.now() - start);
+                if (left <= 0) { clearInterval(timerInterval); endContest(); return; }
+                const m = Math.floor(left / 60000);
+                const s = Math.floor((left % 60000) / 1000);
+                document.getElementById('timerText').innerText = `${m}:${s < 10 ? '0' : ''}${s}`;
+            }, 1000);
         }
 
-        // Logic to submit and run 5 Hidden Cases for final score
-        async function submitSolution() {
-            const code = editor.getValue();
-            const language = document.getElementById('langSelect').value;
-            
-            if (!code.trim()) return alert("Code cannot be empty.");
-            if (!confirm("Submit for final grading? Points will be calculated based on 5 hidden test cases.")) return;
-
-            try {
-                const response = await fetch(`${API_URL}/student/submit-solution`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ contest_id: contestId, problem_index: selectedProblemIndex, code, language })
-                });
-                
-                const result = await response.json();
-                if (result.success) {
-                    const data = result.data;
-                    alert(`Final Result: ${data.message}\nHidden Passed: ${data.hidden_passed}/5\nScore Earned: ${data.score}`);
-                    loadContest(); 
-                } else {
-                    alert("Submission error: " + result.message);
-                }
-            } catch (e) { alert("Critical error during submission."); }
+        function exitContest() {
+            if (confirm("Exit IDE? Your current draft is saved, but time continues.")) window.location.href = 'student_dashboard.html';
         }
 
         window.onload = init;
