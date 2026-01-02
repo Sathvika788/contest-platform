@@ -392,7 +392,7 @@
                 const data = await response.json();
                 if(data.success) {
                     showToast('Contest successfully deployed!', 'success');
-                    setTimeout(() => window.location.href = 'moderator_dashboard.html', 1500);
+                    setTimeout(() => window.location.href = 'moderator.html', 1500);
                 }
             } catch (e) { showToast('Deployment error', 'error'); }
             finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-rocket"></i> Finalize & Deploy Contest'; }
