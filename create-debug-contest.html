@@ -192,6 +192,7 @@
         const API_URL = `${window.location.protocol}//${window.location.hostname}:${window.location.port}/api`;
         const token = localStorage.getItem('token');
         let problemQueue = [];
+        let tempAIProblems = []; // Safety storage for AI results
 
         async function init() {
             if(!token) window.location.href = 'index.html';
@@ -224,16 +225,19 @@
 
             // Collect 2 Sample and 5 Hidden Test Cases
             const test_cases = [
-                { input: document.getElementById('s1_in').value, output: document.getElementById('s1_out').value, is_sample: true },
-                { input: document.getElementById('s2_in').value, output: document.getElementById('s2_out').value, is_sample: true },
-                { input: document.getElementById('h1_in').value, output: document.getElementById('h1_out').value, is_sample: false },
-                { input: document.getElementById('h2_in').value, output: document.getElementById('h2_out').value, is_sample: false },
-                { input: document.getElementById('h3_in').value, output: document.getElementById('h3_out').value, is_sample: false },
-                { input: document.getElementById('h4_in').value, output: document.getElementById('h4_out').value, is_sample: false },
-                { input: document.getElementById('h5_in').value, output: document.getElementById('h5_out').value, is_sample: false }
+                { input: document.getElementById('s1_in').value || "", output: document.getElementById('s1_out').value || "", is_sample: true },
+                { input: document.getElementById('s2_in').value || "", output: document.getElementById('s2_out').value || "", is_sample: true },
+                { input: document.getElementById('h1_in').value || "", output: document.getElementById('h1_out').value || "", is_sample: false },
+                { input: document.getElementById('h2_in').value || "", output: document.getElementById('h2_out').value || "", is_sample: false },
+                { input: document.getElementById('h3_in').value || "", output: document.getElementById('h3_out').value || "", is_sample: false },
+                { input: document.getElementById('h4_in').value || "", output: document.getElementById('h4_out').value || "", is_sample: false },
+                { input: document.getElementById('h5_in').value || "", output: document.getElementById('h5_out').value || "", is_sample: false }
             ];
 
-            // Validation
+            // Added safety: Prevent undefined crash during validation
+            const samples = (test_cases || []).filter(tc => tc.is_sample === true).length;
+            const hidden = (test_cases || []).filter(tc => tc.is_sample === false).length;
+
             if(!title || !code || test_cases.some(tc => !tc.output)) {
                 return showToast("All 7 test case outputs are required.", "error");
             }
@@ -263,10 +267,12 @@
                 });
                 const data = await res.json();
                 if(data.success) {
-                    renderAIResults(data.data.problems);
+                    tempAIProblems = data.data.problems; // Store in global temp array
+                    renderAIResults(tempAIProblems);
                     document.getElementById('uploadStatus').innerText = "AI Processing Successful!";
                 } else {
                     showToast(data.message, "error");
+                    document.getElementById('uploadStatus').innerText = "Processing Failed. Try again.";
                 }
             };
             reader.readAsText(file);
@@ -275,21 +281,32 @@
         function renderAIResults(problems) {
             const div = document.getElementById('aiPreview');
             div.className = '';
-            document.getElementById('aiList').innerHTML = problems.map((p, i) => `
+            
+            // Defensive check for test_cases before rendering
+            document.getElementById('aiList').innerHTML = (problems || []).map((p, i) => {
+                const hasCases = Array.isArray(p.test_cases) && p.test_cases.length > 0;
+                return `
                 <div class="problem-card">
                     <div>
-                        <strong>${p.title}</strong> 
-                        <span class="badge" style="background: #ecfdf5; color: #059669;">Verified 2+5 Logic</span>
+                        <strong>${p.title || "Unnamed Problem"}</strong> 
+                        ${hasCases ? '<span class="badge" style="background: #ecfdf5; color: #059669;">Verified 2+5 Logic</span>' : '<span class="badge" style="background: #fee2e2; color: #ef4444;">Missing Cases</span>'}
                     </div>
-                    <button class="btn btn-success" style="padding:8px 15px; font-size: 0.8rem;" onclick='addToQueue(${JSON.stringify(p)})'>
+                    <button class="btn btn-success" style="padding:8px 15px; font-size: 0.8rem;" onclick='addAITask(${i})'>
                         <i class="fas fa-plus"></i> Add
                     </button>
                 </div>
-            `).join('');
+            `}).join('');
         }
 
-        function addToQueue(p) {
-            problemQueue.push(p);
+        // Safety function to add AI task using index instead of stringified JSON
+        function addAITask(index) {
+            const problem = tempAIProblems[index];
+            if(!problem) return showToast("Problem data error", "error");
+            
+            // Ensure test_cases array exists to prevent future filter crashes
+            if(!Array.isArray(problem.test_cases)) problem.test_cases = [];
+            
+            problemQueue.push(problem);
             renderQueue();
             showToast("Problem added to queue", "success");
         }
@@ -304,7 +321,7 @@
                 <div class="problem-card">
                     <div>
                         <span style="font-weight: 700; margin-right: 10px;">#${i+1}</span>
-                        <span>${p.title}</span>
+                        <span>${p.title || "Unnamed Problem"}</span>
                     </div>
                     <i class="fas fa-trash-alt" style="color:var(--danger); cursor:pointer" onclick="problemQueue.splice(${i},1);renderQueue()"></i>
                 </div>
@@ -314,6 +331,16 @@
         async function launchContest() {
             const name = document.getElementById('contestName').value;
             if(!name || problemQueue.length === 0) return showToast("Contest Name and at least 1 problem required", "error");
+
+            // Final safety check for test_cases array before submission
+            for (const prob of problemQueue) {
+                const samples = (prob.test_cases || []).filter(tc => tc.is_sample === true).length;
+                const hidden = (prob.test_cases || []).filter(tc => tc.is_sample === false).length;
+                
+                if (samples < 2 || hidden < 5) {
+                    return showToast(`Problem "${prob.title}" requires 2 sample and 5 hidden test cases.`, "error");
+                }
+            }
 
             const payload = {
                 name,
