@@ -897,26 +897,20 @@ app.post('/api/moderator/upload-document', verifyToken, async (req, res) => {
 
 // Process document to extract problems (using AI)
 // Process document to extract problems (using AI)
+// Process document to extract problems (forced 2 sample + 5 hidden)
+// Process document to extract problems (Strict 2 Sample + 5 Hidden)
 app.post('/api/moderator/process-document', verifyToken, async (req, res) => {
     try {
         const { documentContent, language, difficulty } = req.body;
         
         if (!documentContent) {
-            return res.status(400).json({
-                success: false,
-                message: "Document content is required"
-            });
+            return res.status(400).json({ success: false, message: "Document content is required" });
         }
         
         if (!process.env.GROQ_API_KEY) {
-            return res.status(500).json({
-                success: false,
-                message: "AI service is not configured"
-            });
+            return res.status(500).json({ success: false, message: "AI service not configured" });
         }
-        
-        console.log("Processing document with AI...");
-        
+
         const chatCompletion = await groq.chat.completions.create({
             messages: [
                 {
@@ -924,29 +918,22 @@ app.post('/api/moderator/process-document', verifyToken, async (req, res) => {
                     content: `You are a programming contest problem extractor. 
                     Extract programming problems from the provided text.
                     
-                    Return ONLY a valid JSON object with a key "problems" containing an array of problem objects.
+                    Return ONLY a valid JSON object with a key "problems" containing an array.
                     
-                    CRITICAL: Each problem MUST contain a "test_cases" array with EXACTLY 7 objects:
-                    - 2 objects where "is_sample": true
-                    - 5 objects where "is_sample": false
+                    CRITICAL REQUIREMENT: Each problem MUST contain a "test_cases" array with EXACTLY 7 objects:
+                    - 2 objects where "is_sample": true (for trial runs)
+                    - 5 objects where "is_sample": false (hidden for final scoring)
                     
                     Each problem object must have:
                     - title (string)
                     - description (string)
                     - score (number, default 20)
                     - difficulty (string: "Easy", "Medium", "Hard")
-                    - test_cases (array of 7 objects with "input", "output", and "is_sample" boolean)
-                    
-                    Ensure the extracted problems are logical and algorithmic.`
+                    - test_cases (array of 7 objects with "input", "output", and "is_sample" boolean)`
                 },
                 {
                     role: "user",
-                    content: `Extract programming problems from this content:
-                    
-                    ${documentContent.substring(0, 8000)}
-                    
-                    Language focus: ${language || 'python'}
-                    Difficulty level: ${difficulty || 'Medium'}`
+                    content: `Extract problems from: ${documentContent.substring(0, 8000)}. Focus on ${language || 'python'}.`
                 }
             ],
             model: "llama-3.3-70b-versatile",
@@ -954,44 +941,15 @@ app.post('/api/moderator/process-document', verifyToken, async (req, res) => {
             temperature: 0.3
         });
         
-        const text = chatCompletion.choices[0]?.message?.content || "";
+        const parsed = JSON.parse(chatCompletion.choices[0]?.message?.content || "{}");
         
-        try {
-            const parsed = JSON.parse(text);
-            
-            if (parsed.problems && Array.isArray(parsed.problems)) {
-                // Ensure every problem has the required properties for your frontend
-                const enhancedProblems = parsed.problems.map(prob => ({
-                    ...prob,
-                    score: prob.score || 20,
-                    difficulty: prob.difficulty || difficulty || "Medium"
-                }));
-                
-                res.json({
-                    success: true,
-                    data: {
-                        problems: enhancedProblems,
-                        count: enhancedProblems.length
-                    }
-                });
-            } else {
-                throw new Error("Invalid response format from AI");
-            }
-        } catch (parseErr) {
-            console.error("JSON Parse Error:", parseErr);
-            res.status(500).json({
-                success: false,
-                message: "Failed to parse AI response"
-            });
+        if (parsed.problems && Array.isArray(parsed.problems)) {
+            res.json({ success: true, data: { problems: parsed.problems, count: parsed.problems.length } });
+        } else {
+            throw new Error("Invalid response format from AI");
         }
-        
     } catch (err) {
-        console.error("Process Document Error:", err);
-        res.status(500).json({
-            success: false,
-            message: "Error processing document",
-            error: err.message
-        });
+        res.status(500).json({ success: false, message: "Error processing document", error: err.message });
     }
 });
 // Extract debugging problems from document
@@ -1599,19 +1557,22 @@ app.delete('/api/moderator/contest/:id', verifyToken, async (req, res) => {
 // FIXED CREATE CONTEST ROUTE
 // ====================================================
 // POST /api/moderator/create-contest
+// Create contest with strict 2+5 test case validation
+// Create regular contest with strict test case validation
 app.post('/api/moderator/create-contest', verifyToken, async (req, res) => {
     try {
         const { name, description, problems, time_limit, language } = req.body;
         const contestId = `contest_${crypto.randomUUID().replace(/-/g, '').substring(0, 12)}`;
 
-        // Validation: Ensure each problem has at least 2 samples and 5 hidden cases
+        // Strict Validation: Every problem must have 2 samples and 5 hidden cases
         for (const prob of problems) {
-            const samples = prob.test_cases.filter(tc => tc.is_sample).length;
-            const hidden = prob.test_cases.filter(tc => !tc.is_sample).length;
+            const samples = prob.test_cases.filter(tc => tc.is_sample === true).length;
+            const hidden = prob.test_cases.filter(tc => tc.is_sample === false).length;
+            
             if (samples < 2 || hidden < 5) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: `Problem "${prob.title}" requires 2 sample and 5 hidden test cases.` 
+                    message: `Problem "${prob.title}" requires 2 sample and 5 hidden test cases. Found: ${samples} samples, ${hidden} hidden.` 
                 });
             }
         }
@@ -1621,13 +1582,15 @@ app.post('/api/moderator/create-contest', verifyToken, async (req, res) => {
         const contestData = {
             contest_id: contestId,
             name: name || "Untitled Contest",
+            description: description,
             problems: problems,
+            language: language,
             created_by: req.user.email,
             created_at: new Date().toISOString(),
             status: "active",
             metadata: {
                 total_score: totalScore,
-                time_limit: parseInt(time_limit) || 120
+                time_limit: parseInt(time_limit) || 60
             }
         };
 
@@ -2675,120 +2638,50 @@ app.post('/api/moderator/generate-problems', verifyToken, async (req, res) => {
 // ====================================================
 
 // Create debugging contest
+// POST /api/moderator/create-debug-contest
 app.post('/api/moderator/create-debug-contest', verifyToken, async (req, res) => {
     try {
-        const { name, language, method, problems, aiTopic, aiDifficulty, timeLimit, targetType, targetCollege } = req.body;
+        const { name, language, problems, targetType, targetCollege } = req.body;
         
-        if (!name || !language) {
-            return res.status(400).json({ 
-                success: false,
-                message: "Contest name and language are required" 
-            });
+        // --- NEW VALIDATION LOGIC ---
+        for (const prob of problems) {
+            const samples = prob.test_cases.filter(tc => tc.is_sample === true).length;
+            const hidden = prob.test_cases.filter(tc => tc.is_sample === false).length;
+            
+            if (samples !== 2 || hidden !== 5) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `Problem "${prob.title}" must have exactly 2 sample and 5 hidden test cases. Found: ${samples} samples, ${hidden} hidden.` 
+                });
+            }
         }
-        
+        // --- END VALIDATION ---
+
         const contestId = `debug_${crypto.randomUUID().replace(/-/g, '').substring(0, 12)}`;
-        let finalProblems = [];
-        
-        // Handle different creation methods
-        if (method === 'ai') {
-            if (!aiTopic) {
-                return res.status(400).json({ 
-                    success: false,
-                    message: "Topic is required for AI generation" 
-                });
-            }
-            
-            console.log("Generating AI debugging problems...");
-            finalProblems = await generateDebuggingProblems(aiTopic, aiDifficulty || 'Medium', language);
-            
-            if (!finalProblems.length) {
-                return res.status(400).json({ 
-                    success: false,
-                    message: "AI failed to generate problems. Please try again." 
-                });
-            }
-            
-        } else if (method === 'manual') {
-            if (!problems || !Array.isArray(problems) || problems.length === 0) {
-                return res.status(400).json({ 
-                    success: false,
-                    message: "At least one problem is required for manual creation" 
-                });
-            }
-            
-            finalProblems = problems.map((p, index) => ({
-                ...p,
-                index: index,
-                score: p.score || 20,
-                difficulty: p.difficulty || 'Medium'
-            }));
-            
-        } else if (method === 'doc') {
-            if (!problems || !Array.isArray(problems) || problems.length === 0) {
-                return res.status(400).json({ 
-                    success: false,
-                    message: "Please process the document first or use manual entry" 
-                });
-            }
-            
-            finalProblems = problems;
-        }
-        
-        // Calculate total score
-        const totalScore = finalProblems.reduce((sum, p) => sum + (p.score || 20), 0);
+        const totalScore = problems.reduce((sum, p) => sum + (p.score || 20), 0);
         
         const contestData = {
             contest_id: contestId,
             name: name,
             type: "debugging",
             language: language,
-            method: method,
+            problems: problems,
             target_type: targetType || 'overall',
             target_college: targetType === 'college' ? targetCollege : '',
             created_by: req.user.email,
             created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
             status: "active",
-            problems: finalProblems,
-            metadata: {
-                total_tasks: finalProblems.length,
-                total_score: totalScore,
-                time_limit: timeLimit || 60,
-                difficulty: aiDifficulty || finalProblems[0]?.difficulty || 'Medium',
-                topic: aiTopic || 'General Debugging'
-            }
+            metadata: { total_score: totalScore }
         };
-        
-        // Save to DebugContests table
+
         await client.send(new PutItemCommand({
             TableName: "DebugContests",
             Item: ddbMarshall(contestData)
         }));
-        
-        console.log(`Debug contest created: ${contestId} by ${req.user.email}`);
-        
-        res.status(201).json({
-            success: true,
-            message: "Debugging contest created successfully!",
-            data: {
-                contestId: contestId,
-                name: name,
-                targetType: targetType,
-                targetCollege: targetCollege || '',
-                shareUrl: `/student-debug.html?id=${contestId}`,
-                problemsCount: finalProblems.length,
-                totalScore: totalScore,
-                previewUrl: `/api/moderator/debug-contest/${contestId}`
-            }
-        });
-        
+
+        res.status(201).json({ success: true, contestId: contestId });
     } catch (err) {
-        console.error("Create Debug Contest Error:", err);
-        res.status(500).json({ 
-            success: false,
-            message: "Error creating debugging contest",
-            error: err.message 
-        });
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
@@ -4501,131 +4394,86 @@ app.get('/api/student/available-debug-contests', verifyToken, async (req, res) =
 // SUBMISSION ROUTE (Error C Fix: Function logic kept clean)
 // ====================================================
 
+// Submit solution with partial scoring based on 5 hidden test cases
+// Submit solution with partial scoring (2 Samples for feedback, 5 Hidden for points)
 app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
     try {
-        const { contest_id, problem_index, code, language, language_id } = req.body;
-        
-        // 1. Validation
-        if (!contest_id || problem_index === undefined || !code) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Missing required fields: contest_id, problem_index, code" 
-            });
-        }
-        
-        // Language Mapping
-        let actualLanguage = language;
-        if (!actualLanguage && language_id) {
-            const idMap = { '71': 'python', '54': 'cpp', '50': 'c', '62': 'java' };
-            actualLanguage = idMap[language_id] || 'python';
-        }
-        actualLanguage = actualLanguage || 'python';
-
+        const { contest_id, problem_index, code, language } = req.body;
         const problemIndex = parseInt(problem_index);
-        
-        // 2. Database Retrieval
+
         const { Item } = await client.send(new GetItemCommand({
             TableName: "Contests",
             Key: ddbMarshall({ contest_id: contest_id })
         }));
         
         if (!Item) return res.status(404).json({ success: false, message: "Contest not found" });
-        
         const contest = unmarshall(Item);
         const problem = contest.problems[problemIndex];
 
-        if (!problem || !Array.isArray(problem.test_cases)) {
-            return res.status(400).json({ success: false, message: "Problem or test cases not found" });
-        }
-
-        // 3. Separate Test Cases (2 Sample, 5 Hidden)
+        // Filter cases
         const sampleTestCases = problem.test_cases.filter(tc => tc.is_sample === true);
-        const hiddenTestCases = problem.test_cases.filter(tc => !tc.is_sample);
+        const hiddenTestCases = problem.test_cases.filter(tc => tc.is_sample === false);
         
-        const languageMap = {
-            'python': 'python', 'python3': 'python', 'py': 'python',
-            'cpp': 'cpp', 'c++': 'cpp', 'c': 'c', 'java': 'java'
-        };
-        const compilerLanguage = languageMap[actualLanguage.toLowerCase()] || 'python';
+        const compilerLang = language || 'python';
 
+        // 1. Run 2 Sample Cases (Visible results for student)
         let sampleResults = [];
-
-        // 4. Execute 2 Sample Test Cases
         for (let i = 0; i < sampleTestCases.length; i++) {
-            const testCase = sampleTestCases[i];
-            const execResult = await runOnCompiler(compilerLanguage, code, testCase.input);
-            
-            const normalizedOutput = execResult.output.replace(/\r\n/g, '\n').trim();
-            const normalizedExpected = (testCase.output || '').trim().replace(/\r\n/g, '\n');
-            
+            const tc = sampleTestCases[i];
+            const exec = await runOnCompiler(compilerLang, code, tc.input);
+            const passed = exec.output.trim() === tc.output.trim();
             sampleResults.push({
                 test_case: i + 1,
-                input: testCase.input,
-                output: normalizedOutput,
-                expected: normalizedExpected,
-                passed: normalizedOutput === normalizedExpected,
-                error: execResult.error
+                input: tc.input,
+                expected: tc.output,
+                actual: exec.output,
+                passed: passed,
+                error: exec.error
             });
         }
 
-        // 5. Execute 5 Hidden Test Cases for Scoring
-        let totalPassedHidden = 0;
-        for (const testCase of hiddenTestCases) {
-            const execResult = await runOnCompiler(compilerLanguage, code, testCase.input);
-            const normalizedOutput = execResult.output.replace(/\r\n/g, '\n').trim();
-            const normalizedExpected = (testCase.output || '').trim().replace(/\r\n/g, '\n');
-            
-            if (normalizedOutput === normalizedExpected) {
-                totalPassedHidden++;
+        // 2. Run 5 Hidden Cases (Final scoring)
+        let hiddenPassed = 0;
+        for (const tc of hiddenTestCases) {
+            const exec = await runOnCompiler(compilerLang, code, tc.input);
+            if (exec.output.trim() === tc.output.trim()) {
+                hiddenPassed++;
             }
         }
 
-        // 6. Score Calculation
-        const hiddenCount = hiddenTestCases.length || 1; 
-        const passRate = totalPassedHidden / hiddenCount;
-        const finalScore = Math.round(passRate * (problem.score || 20));
-        
-        const submissionId = `sub_${crypto.randomUUID().substring(0, 8)}`;
+        // 3. Final Score (Each hidden case = 20% of problem points)
+        const finalScore = Math.round((hiddenPassed / 5) * (problem.score || 20));
+        const allHiddenPassed = (hiddenPassed === 5);
+
         const submission = {
-            submission_id: submissionId,
+            submission_id: `sub_${crypto.randomUUID().substring(0, 8)}`,
             contest_id: contest_id,
             problem_index: problemIndex,
             student_email: req.user.email,
             code: code,
-            passed: totalPassedHidden === hiddenCount,
+            passed: allHiddenPassed,
             score: finalScore,
-            submitted_at: new Date().toISOString(),
-            sample_results: sampleResults
+            submitted_at: new Date().toISOString()
         };
 
-        // 7. Save and Update Results
-        await client.send(new PutItemCommand({
-            TableName: "StudentSubmissions",
-            Item: ddbMarshall(submission)
-        }));
-        
+        // Save submission and update student record
+        await client.send(new PutItemCommand({ TableName: "StudentSubmissions", Item: ddbMarshall(submission) }));
         await updateRegularStudentResults(req.user.email, contest_id, contest, submission);
-
-        // 8. Construct Response Message
-        let message = totalPassedHidden === hiddenCount ? "✓ All tests passed!" : `✗ Passed ${totalPassedHidden}/${hiddenCount} hidden test cases`;
 
         res.json({
             success: true,
             data: {
-                passed: totalPassedHidden === hiddenCount,
+                passed: allHiddenPassed,
                 score: finalScore,
-                max_score: problem.score || 20,
-                message: message,
                 sample_results: sampleResults,
-                hidden_results: { passed: totalPassedHidden, total: hiddenCount }
+                hidden_passed: hiddenPassed,
+                message: allHiddenPassed ? "All hidden test cases passed!" : `Passed ${hiddenPassed}/5 hidden test cases.`
             }
         });
-
     } catch (err) {
-        res.status(500).json({ success: false, message: "Error submitting solution", error: err.message });
+        res.status(500).json({ success: false, message: "Submission failed", error: err.message });
     }
 });
-
 // Helper function to encapsulate compiler fetching logic
 async function runOnCompiler(language, code, stdin) {
     try {
