@@ -4945,39 +4945,46 @@ app.get('/api/student/debug-contest/:id', verifyToken, async (req, res) => {
 });
 
 // GET Leaderboard data for students
+// GET Leaderboard data for students in server.js
+// Locate this route in server.js
 app.get('/api/student/leaderboard', verifyToken, async (req, res) => {
     try {
+        // 1. Fetch data from all three necessary tables
         const [normalResults, debugResults, students] = await Promise.all([
             client.send(new ScanCommand({ TableName: "StudentResults" })),
             client.send(new ScanCommand({ TableName: "DebugStudentResults" })),
             client.send(new ScanCommand({ TableName: "Students" }))
         ]);
 
+        // 2. Unmarshall DynamoDB JSON into standard JavaScript objects
         const allNormal = (normalResults.Items || []).map(i => unmarshall(i));
         const allDebug = (debugResults.Items || []).map(i => unmarshall(i));
         const allStudents = (students.Items || []).map(i => unmarshall(i));
 
-        // Aggregate scores by student email
+        // 3. Map students to their total scores
         const rankings = allStudents.map(student => {
+            // Filter results for this specific student email
             const studentNormal = allNormal.filter(r => r.student_email === student.email);
             const studentDebug = allDebug.filter(r => r.student_email === student.email);
 
-            const totalScore = [
-                ...studentNormal.map(r => r.total_score || 0),
-                ...studentDebug.map(r => r.total_score || 0)
-            ].reduce((sum, score) => sum + score, 0);
+            // Force conversion to Number to handle the score attributes
+            const normalScore = studentNormal.reduce((sum, r) => sum + (Number(r.total_score) || 0), 0);
+            const debugScore = studentDebug.reduce((sum, r) => sum + (Number(r.total_score) || 0), 0);
+            
+            const totalScore = normalScore + debugScore;
 
             return {
-                name: student.name || student.email,
-                college: student.college || "N/A",
-                totalScore: totalScore,
-                contestsCompleted: studentNormal.length + studentDebug.length
+                name: student.name || student.email, //
+                college: student.college || "N/A", //
+                totalScore: totalScore, // Consistent key for frontend
+                contestsCompleted: studentNormal.length + studentDebug.length //
             };
         });
 
-        // Sort by highest score
+        // 4. Sort by highest score descending
         rankings.sort((a, b) => b.totalScore - a.totalScore);
 
+        // 5. Send the structured data back to the frontend
         res.json({ success: true, data: rankings });
     } catch (err) {
         console.error("Leaderboard Error:", err);
@@ -4992,7 +4999,7 @@ app.post('/api/student/submit-debug-solution', verifyToken, async (req, res) => 
         const userEmail = req.user.email;
         const resultId = `debugres_${userEmail}_${contest_id}`;
 
-        // 1. Fetch existing results to check attempt count
+        // Fetch current progress to check attempt count
         const { Item: existingItem } = await client.send(new GetItemCommand({
             TableName: "DebugStudentResults",
             Key: ddbMarshall({ result_id: resultId })
@@ -5002,16 +5009,16 @@ app.post('/api/student/submit-debug-solution', verifyToken, async (req, res) => 
             const existing = unmarshall(existingItem);
             const problemStats = existing.problem_scores?.find(p => p.index === problem_index);
             
-            // CRITICAL: Block if attempts >= 2 or already passed
+            // STRICT ENFORCEMENT: Block third submission or re-submission of solved problems
             if (problemStats && (problemStats.attempts >= 2 || problemStats.passed)) {
                 return res.status(403).json({ 
                     success: false, 
-                    message: "Access Denied: Maximum attempts reached for this problem." 
+                    message: "Question is locked. Maximum attempts reached." 
                 });
             }
         }
 
-        // 2. Fetch contest data to get the specific problem
+        // Proceed with code testing if under the limit
         const { Item: contestItem } = await client.send(new GetItemCommand({
             TableName: "DebugContests",
             Key: ddbMarshall({ contest_id: contest_id })
@@ -5019,36 +5026,36 @@ app.post('/api/student/submit-debug-solution', verifyToken, async (req, res) => 
         const contest = unmarshall(contestItem);
         const problem = contest.problems[problem_index];
 
-        // 3. Test the solution
         const testResult = await testDebugSolution(fixed_code, problem, contest.language);
         
-        // 4. Update the attempts in the score object (Logic to be saved in updateStudentResults)
+        // Prepare the submission data with incremented attempt count
+        const currentAttempts = (existingItem ? (unmarshall(existingItem).problem_scores?.find(p => p.index === problem_index)?.attempts || 0) : 0) + 1;
+
         const submission = {
             contest_id,
             problem_index,
             fixed_code,
             passed: testResult.passed,
             score: testResult.passed ? (problem.score || 20) : 0,
+            attempts: currentAttempts, // Ensure this field is saved
             submitted_at: new Date().toISOString()
         };
 
-        // 5. Update Database (Ensure your update function increments the 'attempts' field)
+        // Update the results table
         await updateDebugStudentResults(userEmail, contest_id, contest, submission);
 
         res.json({
             success: true,
             data: {
                 passed: testResult.passed,
-                attempts_taken: (existingItem ? (existingItem.problem_scores?.find(p => p.index === problem_index)?.attempts || 0) : 0) + 1,
+                attempts_taken: currentAttempts,
                 message: testResult.passed ? "✅ Fixed!" : "❌ Failed"
             }
         });
-
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 });
-
 // Student get their debug results
 app.get('/api/student/debug-results/:contestId', verifyToken, async (req, res) => {
     try {
@@ -6780,119 +6787,62 @@ async function testDebugSolution(fixedCode, problem, language) {
 // Helper function to update debug student results in DebugStudentResults table
 async function updateDebugStudentResults(studentEmail, contestId, contest, submission) {
     try {
-        console.log(`Updating debug student results for ${studentEmail}, contest ${contestId}`);
-        
-        const resultId = `res_${studentEmail}_${contestId}`;
-        
-        // Check if result already exists
-        let existingResult = null;
-        try {
-            const { Item: existingItem } = await client.send(new GetItemCommand({
-                TableName: "DebugStudentResults",
-                Key: ddbMarshall({ result_id: resultId })
-            }));
-            
-            if (existingItem) {
-                existingResult = unmarshall(existingItem);
-                console.log("Found existing debug result:", existingResult.result_id);
-            }
-        } catch (getErr) {
-            console.log("No existing debug result found, creating new one");
-        }
-        
-        const totalProblems = contest.problems?.length || 0;
-        const maxScore = contest.metadata?.total_score || 
-                        contest.problems?.reduce((sum, p) => sum + (p.score || 20), 0) || 0;
+        const resultId = `debugres_${studentEmail}_${contestId}`;
+        const { Item: existingItem } = await client.send(new GetItemCommand({
+            TableName: "DebugStudentResults",
+            Key: ddbMarshall({ result_id: resultId })
+        }));
         
         let problemScores = [];
-        let totalScore = 0;
-        let problemsSolved = 0;
-        
-        if (existingResult && existingResult.problem_scores && Array.isArray(existingResult.problem_scores)) {
-            // Update existing scores
-            problemScores = existingResult.problem_scores;
-            const existingProblemIndex = problemScores.findIndex(p => p.index === submission.problem_index);
+        if (existingItem) {
+            const existing = unmarshall(existingItem);
+            problemScores = existing.problem_scores || [];
+            const idx = problemScores.findIndex(p => p.index === submission.problem_index);
             
-            if (existingProblemIndex >= 0) {
-                // Update if new score is better
-                if (submission.score > problemScores[existingProblemIndex].score) {
-                    problemScores[existingProblemIndex] = {
-                        index: submission.problem_index,
-                        score: submission.score,
-                        passed: submission.passed,
-                        submission_time: submission.submitted_at,
-                        problem_title: submission.problem_title || `Problem ${submission.problem_index + 1}`
-                    };
-                    console.log(`Updated existing debug problem ${submission.problem_index} score to ${submission.score}`);
+            if (idx >= 0) {
+                // Update existing: Increment attempts and update score if passed
+                problemScores[idx].attempts = submission.attempts;
+                if (submission.passed) {
+                    problemScores[idx].passed = true;
+                    problemScores[idx].score = submission.score;
                 }
             } else {
-                // Add new problem score
                 problemScores.push({
                     index: submission.problem_index,
                     score: submission.score,
                     passed: submission.passed,
-                    submission_time: submission.submitted_at,
-                    problem_title: submission.problem_title || `Problem ${submission.problem_index + 1}`
+                    attempts: submission.attempts, // Save attempts here
+                    submission_time: submission.submitted_at
                 });
-                console.log(`Added new debug problem ${submission.problem_index} with score ${submission.score}`);
             }
         } else {
-            // Create new problem scores array
             problemScores = [{
                 index: submission.problem_index,
                 score: submission.score,
                 passed: submission.passed,
-                submission_time: submission.submitted_at,
-                problem_title: submission.problem_title || `Problem ${submission.problem_index + 1}`
+                attempts: submission.attempts,
+                submission_time: submission.submitted_at
             }];
-            console.log(`Created new debug problem scores array for problem ${submission.problem_index}`);
         }
-        
-        // Calculate totals
-        totalScore = problemScores.reduce((sum, p) => sum + (p.score || 0), 0);
-        problemsSolved = problemScores.filter(p => p.passed).length;
-        
-        // Determine status
-        let status = 'not_started';
-        if (problemsSolved === totalProblems && totalProblems > 0) {
-            status = 'completed';
-        } else if (problemsSolved > 0 || problemScores.length > 0) {
-            status = 'in_progress';
-        }
-        
-        console.log(`Calculated debug results: totalScore=${totalScore}, problemsSolved=${problemsSolved}/${totalProblems}, status=${status}`);
-        
-        // Prepare result data
-        const resultData = {
-            result_id: resultId,
-            contest_id: contestId,
-            contest_name: contest.name,
-            student_email: studentEmail,
-            student_name: submission.student_name,
-            total_score: totalScore,
-            max_score: maxScore,
-            problems_solved: problemsSolved,
-            total_problems: totalProblems,
-            problem_scores: problemScores,
-            submission_time: submission.submitted_at,
-            updated_at: new Date().toISOString(),
-            status: status,
-            started_at: existingResult?.started_at || submission.submitted_at
-        };
-        
-        // Save to DebugStudentResults table
+
+        const totalScore = problemScores.reduce((sum, p) => sum + (p.score || 0), 0);
+        const problemsSolved = problemScores.filter(p => p.passed).length;
+
         await client.send(new PutItemCommand({
             TableName: "DebugStudentResults",
-            Item: ddbMarshall(resultData)
+            Item: ddbMarshall({
+                result_id: resultId,
+                contest_id: contestId,
+                student_email: studentEmail,
+                problem_scores: problemScores,
+                total_score: totalScore,
+                problems_solved: problemsSolved,
+                updated_at: new Date().toISOString(),
+                status: "in_progress"
+            })
         }));
-        
-        console.log("Debug student results updated successfully in DebugStudentResults table");
-        return resultData;
-        
     } catch (err) {
-        console.error("Error updating debug student results:", err.message);
-        console.error("Error stack:", err.stack);
-        throw err;
+        console.error("Helper Update Error:", err);
     }
 }
 
