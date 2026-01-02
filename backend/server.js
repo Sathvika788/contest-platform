@@ -236,6 +236,10 @@ async function generateDebuggingProblems(topic, difficulty, language, count = 3)
 }
 
 // Test debugging solutions
+/**
+ * Test debugging solutions by running them against a remote compiler.
+ * Fixed to prevent "str.trim is not a function" errors by ensuring all inputs are cast to strings.
+ */
 async function testDebugSolution(fixedCode, problem, language) {
     try {
         const languageMap = {
@@ -247,13 +251,9 @@ async function testDebugSolution(fixedCode, problem, language) {
         
         const compilerLang = languageMap[language] || 'python';
         
-        console.log(`Testing debug solution for ${language}, using compiler language: ${compilerLang}`);
-        
         const response = await fetch('http://65.2.104.225:8000/api/compile', {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 language: compilerLang,
                 code: fixedCode,
@@ -264,11 +264,21 @@ async function testDebugSolution(fixedCode, problem, language) {
         
         const result = await response.json();
         
-        const output = result.output || '';
-        const expected = problem.output || '';
+        // Defensive conversion to String: result.output or stdout might be undefined/boolean
+        const output = String(result.output || result.stdout || '');
+        const expected = String(problem.output || '');
         
+        /**
+         * Normalizes strings by removing carriage returns, collapsing extra whitespace,
+         * and trimming ends to ensure a fair comparison.
+         */
         const normalize = (str) => {
-            if (!str) return '';
+            // Check if input is a string to prevent the ".trim is not a function" error
+            // This is essential if 'str' is passed as a boolean 'true'
+            if (typeof str !== 'string') {
+                str = String(str || ''); 
+            }
+            
             return str.trim()
                 .replace(/\r\n/g, '\n')
                 .replace(/\n+/g, '\n')
@@ -279,10 +289,8 @@ async function testDebugSolution(fixedCode, problem, language) {
         const normalizedOutput = normalize(output);
         const normalizedExpected = normalize(expected);
         
-        const passed = normalizedOutput === normalizedExpected;
-        
         return {
-            passed: passed,
+            passed: normalizedOutput === normalizedExpected,
             output: output,
             expected: problem.output,
             error: result.stderr || result.error || '',
@@ -290,7 +298,7 @@ async function testDebugSolution(fixedCode, problem, language) {
         };
         
     } catch (err) {
-        console.error("Test Debug Solution Error:", err.message);
+        console.error("Debug Test Solution Error:", err);
         return {
             passed: false,
             output: '',
@@ -300,8 +308,7 @@ async function testDebugSolution(fixedCode, problem, language) {
         };
     }
 }
-
-// ====================================================
+//=================================================
 // 4. AUTHENTICATION ROUTES
 // ====================================================
 
@@ -4553,15 +4560,16 @@ app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
         // 5. Create Submission Object with explicit Name and Email
         const submission = {
             submission_id: `sub_${crypto.randomUUID().substring(0, 8)}`,
-            contest_id: contest_id,
-            problem_index: problemIndex,
-            student_email: userEmail,   // Ensure Email is captured
-            student_name: studentName,  // Ensure Name is captured
-            code: code,
-            passed: allHiddenPassed,
-            score: finalRawScore,
-            attempts: currentAttempts + 1,
-            submitted_at: new Date().toISOString()
+    contest_id: contest_id,
+    problem_index: problemIndex,
+    student_email: userEmail,
+    student_name: studentName,
+    code: code,
+    passed: allHiddenPassed,
+    score: finalRawScore,
+    // CRITICAL: Record the specific attempt number
+    attempts: (problemStats?.attempts || 0) + 1, 
+    submitted_at: new Date().toISOString()
         };
 
         // 6. Save Submission and Update Results table
@@ -4862,81 +4870,52 @@ app.post('/api/diagnose-submission', async (req, res) => {
         });
     }
 });
-// Student get specific debugging contest
-// Student get specific debugging contest with progression check
-// Student get specific debugging contest with progression check
-// Updated route in server.js
-// Student get specific debugging contest with dynamic progression score check
+// server.js - Updated Route
 app.get('/api/student/debug-contest/:id', verifyToken, async (req, res) => {
     try {
         const debugContestId = req.params.id;
         const userEmail = req.user.email;
 
-        // 1. Find the progression rule using the DebugContestIndex GSI
-        const ruleData = await client.send(new QueryCommand({
-            TableName: "ContestProgressionRules",
-            IndexName: "DebugContestIndex", 
-            KeyConditionExpression: "debug_contest_id = :id",
-            FilterExpression: "#s = :status",
-            ExpressionAttributeNames: { "#s": "status" },
-            ExpressionAttributeValues: ddbMarshall({ ":id": debugContestId, ":status": "active" })
-        }));
-
-        const rules = (ruleData.Items || []).map(i => unmarshall(i));
-
-        // 2. If a rule exists, perform the score percentage check
-        if (rules.length > 0) {
-            const rule = rules[0];
-            const normalId = rule.normal_contest_id;
-
-            // Fetch all individual submissions for the normal contest to get accurate current scores
-            const submissionsData = await client.send(new QueryCommand({
-                TableName: "StudentSubmissions",
-                IndexName: "StudentSubmissionsIndex",
-                KeyConditionExpression: "student_email = :email",
-                FilterExpression: "contest_id = :cid",
-                ExpressionAttributeValues: ddbMarshall({ ":email": userEmail, ":cid": normalId })
-            }));
-
-            const submissions = (submissionsData.Items || []).map(i => unmarshall(i));
-            
-            // Sum up the scores from individual problem submissions
-            const studentTotalScore = submissions.reduce((sum, sub) => sum + (sub.score || 0), 0);
-
-            // Fetch the normal contest to get the total possible max score
-            const contestData = await client.send(new GetItemCommand({
-                TableName: "Contests",
-                Key: ddbMarshall({ contest_id: normalId })
-            }));
-
-            if (!contestData.Item) {
-                return res.status(403).json({ success: false, message: "Prerequisite contest data missing." });
-            }
-
-            const contest = unmarshall(contestData.Item);
-            const maxPossibleScore = (contest.problems || []).reduce((sum, p) => sum + (parseInt(p.score) || 20), 0);
-
-            // 3. Calculate actual percentage
-            const actualPercentage = (studentTotalScore / maxPossibleScore) * 100;
-
-            // 4. Deny access if they haven't met the percentage threshold
-            if (actualPercentage < rule.passing_score) {
-                return res.status(403).json({ 
-                    success: false, 
-                    message: `Locked: This contest requires a ${rule.passing_score}% score in ${rule.normal_contest_name}. You currently have ${actualPercentage.toFixed(1)}%.` 
-                });
-            }
-        }
-
-        // 5. If no rule exists or student passed the check, grant access to debug contest
-        const { Item } = await client.send(new GetItemCommand({
+        // 1. Fetch the contest details
+        const contestData = await client.send(new GetItemCommand({
             TableName: "DebugContests",
             Key: ddbMarshall({ contest_id: debugContestId })
         }));
 
-        if (!Item) return res.status(404).json({ success: false, message: "Debug contest not found." });
-        
-        res.json({ success: true, data: unmarshall(Item) });
+        if (!contestData.Item) return res.status(404).json({ success: false, message: "Debug contest not found." });
+        const contest = unmarshall(contestData.Item);
+
+        // 2. Fetch this specific student's progress to get personal attempt counts
+        const resultId = `debugres_${userEmail}_${debugContestId}`;
+        const { Item: resultItem } = await client.send(new GetItemCommand({
+            TableName: "DebugStudentResults",
+            Key: ddbMarshall({ result_id: resultId })
+        }));
+
+        const studentProgress = resultItem ? unmarshall(resultItem) : null;
+
+        // 3. Merge attempt counts into the problem data sent to frontend
+        const problemsWithStudentData = contest.problems.map((p, idx) => {
+            // Find the score entry for this specific problem index
+            const stats = studentProgress?.problem_scores?.find(ps => ps.index === idx);
+            return {
+                ...p,
+                // These fields are used by your frontend selectProblem() function
+                attempts_taken: stats ? stats.attempts : 0, 
+                passed: stats ? stats.passed : false
+            };
+        });
+
+        res.json({ 
+            success: true, 
+            data: {
+                ...contest,
+                problems: problemsWithStudentData,
+                student_progress: {
+                    total_score: studentProgress?.total_score || 0
+                }
+            } 
+        });
 
     } catch (err) {
         console.error("Access check error:", err);
@@ -4993,32 +4972,37 @@ app.get('/api/student/leaderboard', verifyToken, async (req, res) => {
 });
 
 // Student submit debug solution
+// server.js - Updated Submission Route
 app.post('/api/student/submit-debug-solution', verifyToken, async (req, res) => {
     try {
         const { contest_id, problem_index, fixed_code } = req.body;
         const userEmail = req.user.email;
         const resultId = `debugres_${userEmail}_${contest_id}`;
 
-        // Fetch current progress to check attempt count
+        // 1. Fetch current progress to check attempt count
         const { Item: existingItem } = await client.send(new GetItemCommand({
             TableName: "DebugStudentResults",
             Key: ddbMarshall({ result_id: resultId })
         }));
 
+        let currentAttempts = 0;
         if (existingItem) {
             const existing = unmarshall(existingItem);
             const problemStats = existing.problem_scores?.find(p => p.index === problem_index);
             
-            // STRICT ENFORCEMENT: Block third submission or re-submission of solved problems
-            if (problemStats && (problemStats.attempts >= 2 || problemStats.passed)) {
-                return res.status(403).json({ 
-                    success: false, 
-                    message: "Question is locked. Maximum attempts reached." 
-                });
+            // Re-enforce the limit on the server
+            if (problemStats) {
+                if (problemStats.attempts >= 2 || problemStats.passed) {
+                    return res.status(403).json({ 
+                        success: false, 
+                        message: "Question is locked. Maximum attempts reached." 
+                    });
+                }
+                currentAttempts = problemStats.attempts;
             }
         }
 
-        // Proceed with code testing if under the limit
+        // 2. Fetch contest details for the compiler
         const { Item: contestItem } = await client.send(new GetItemCommand({
             TableName: "DebugContests",
             Key: ddbMarshall({ contest_id: contest_id })
@@ -5026,29 +5010,28 @@ app.post('/api/student/submit-debug-solution', verifyToken, async (req, res) => 
         const contest = unmarshall(contestItem);
         const problem = contest.problems[problem_index];
 
+        // 3. Test the solution
         const testResult = await testDebugSolution(fixed_code, problem, contest.language);
         
-        // Prepare the submission data with incremented attempt count
-        const currentAttempts = (existingItem ? (unmarshall(existingItem).problem_scores?.find(p => p.index === problem_index)?.attempts || 0) : 0) + 1;
-
+        // 4. Update state
         const submission = {
             contest_id,
             problem_index,
             fixed_code,
             passed: testResult.passed,
             score: testResult.passed ? (problem.score || 20) : 0,
-            attempts: currentAttempts, // Ensure this field is saved
+            attempts: currentAttempts + 1, // Increment the counter
             submitted_at: new Date().toISOString()
         };
 
-        // Update the results table
+        // 5. Update the results table (persists the attempt count)
         await updateDebugStudentResults(userEmail, contest_id, contest, submission);
 
         res.json({
             success: true,
             data: {
                 passed: testResult.passed,
-                attempts_taken: currentAttempts,
+                attempts_taken: submission.attempts,
                 message: testResult.passed ? "✅ Fixed!" : "❌ Failed"
             }
         });
@@ -5103,6 +5086,7 @@ app.get('/api/student/debug-results/:contestId', verifyToken, async (req, res) =
 app.post('/api/student/execute', verifyToken, async (req, res) => {
     const { source_code, language_id, stdin } = req.body;
     
+    // 1. Initial Validation
     if (!source_code || language_id === undefined) {
         return res.status(400).json({ 
             success: false,
@@ -5111,29 +5095,28 @@ app.post('/api/student/execute', verifyToken, async (req, res) => {
     }
 
     try {
-        const languageMap = {
-            "71": "python",
-            "54": "cpp",
-            "50": "c",
-            "62": "java"
+        // 2. Language Mapping
+        const languageMap = { 
+            "71": "python", 
+            "54": "cpp", 
+            "50": "c", 
+            "62": "java" 
         };
-
         const language = languageMap[language_id.toString()];
         
         if (!language) {
             return res.status(400).json({ 
-                success: false,
+                success: false, 
                 message: `Unsupported language ID: ${language_id}. Supported: 71(Python), 54(C++), 50(C), 62(Java)` 
             });
         }
 
         console.log(`[Compiler] Sending code to custom compiler. Language: ${language}`);
 
+        // 3. Compiler Service Request
         const response = await fetch('http://65.2.104.225:8000/api/compile', {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 language: language,
                 code: source_code,
@@ -5150,30 +5133,42 @@ app.post('/api/student/execute', verifyToken, async (req, res) => {
 
         const result = await response.json();
 
-        let output = result.output || '';
-        const stdout = result.stdout || '';
-        const stderr = result.stderr || '';
-        const status = result.status || 'unknown';
+        // 4. FIX: Defensive string conversion for all potential output fields
+        // This prevents "str.trim is not a function" if fields are null or undefined
+        const rawOutput = String(result.output || "");
+        const rawStdout = String(result.stdout || "");
+        const rawStderr = String(result.stderr || "");
+        const status = String(result.status || "Executed");
 
-        if (!output.trim()) {
-            output = stdout;
-            if (stderr && stderr.trim()) {
-                output += (output ? '\n' : '') + stderr;
-            }
+        let finalOutput = rawOutput.trim();
+
+        // 5. Logic Fallbacks (Output -> Stdout -> Stderr)
+        if (!finalOutput) {
+            finalOutput = rawStdout.trim();
         }
 
-        let statusId = 3;
-        if (status.includes('error') || status.includes('Error') || stderr) {
-            statusId = 6;
+        // Append stderr if it contains actual error data
+        if (rawStderr.trim()) {
+            finalOutput += (finalOutput ? "\n" : "") + rawStderr.trim();
         }
 
+        // 6. Determine Status ID
+        let statusId = 3; // Default: Success
+        if (status.toLowerCase().includes('error') || rawStderr.trim()) {
+            statusId = 6; // Compilation/Runtime Error
+        }
+
+        // 7. Final Response
         return res.json({
             success: true,
-            status: { id: statusId, description: status || "Executed" },
-            decodedStdout: output.trim(),
-            decodedStderr: stderr.trim(),
+            status: { 
+                id: statusId, 
+                description: status || "Executed" 
+            },
+            decodedStdout: finalOutput,
+            decodedStderr: rawStderr.trim(),
             decodedCompileOutput: "",
-            time: result.executionTime || 0,
+            time: result.executionTime || result.time || 0,
             memory: 0,
             endpointUsed: 'http://65.2.104.225:8000/api/compile'
         });
@@ -5193,7 +5188,6 @@ app.post('/api/student/execute', verifyToken, async (req, res) => {
         }); 
     }
 });
-
 // ====================================================
 // 11. UTILITY & TEST ROUTES
 // ====================================================
@@ -5450,14 +5444,14 @@ app.get('/api/moderator/student-count/:collegeName', verifyToken, async (req, re
 // Validate test case output
 function validateOutput(userOutput, expectedOutput) {
     const normalize = (str) => {
-        if (!str) return '';
-        return str.trim()
+        // Ensure input is converted to a string before trimming
+        const safeStr = String(str || ""); 
+        return safeStr.trim()
             .replace(/\r\n/g, '\n')
             .replace(/\n+/g, '\n')
             .replace(/\s+/g, ' ')
             .trim();
     };
-    
     return normalize(userOutput) === normalize(expectedOutput);
 }
 // ====================================================
@@ -6747,13 +6741,15 @@ async function testDebugSolution(fixedCode, problem, language) {
         
         // Normalize strings for comparison
         const normalize = (str) => {
-            if (!str) return '';
-            return str.trim()
-                .replace(/\r\n/g, '\n')
-                .replace(/\n+/g, '\n')
-                .replace(/\s+/g, ' ')
-                .trim();
-        };
+    // Force conversion to string and handle null/undefined
+    const safeStr = (str === null || str === undefined) ? "" : String(str);
+    
+    return safeStr.trim()
+        .replace(/\r\n/g, '\n')
+        .replace(/\n+/g, '\n')
+        .replace(/\s+/g, ' ')
+        .trim();
+};
         
         const normalizedOutput = normalize(output);
         const normalizedExpected = normalize(problem.output);
@@ -6800,42 +6796,44 @@ async function updateDebugStudentResults(studentEmail, contestId, contest, submi
             const idx = problemScores.findIndex(p => p.index === submission.problem_index);
             
             if (idx >= 0) {
-                // Update existing: Increment attempts and update score if passed
+                // Update attempts and score only if the new submission passed or has higher score
                 problemScores[idx].attempts = submission.attempts;
                 if (submission.passed) {
                     problemScores[idx].passed = true;
-                    problemScores[idx].score = submission.score;
+                    problemScores[idx].score = Number(submission.score); // Ensure Number
                 }
             } else {
                 problemScores.push({
                     index: submission.problem_index,
-                    score: submission.score,
+                    score: Number(submission.score),
                     passed: submission.passed,
-                    attempts: submission.attempts, // Save attempts here
+                    attempts: submission.attempts,
                     submission_time: submission.submitted_at
                 });
             }
         } else {
             problemScores = [{
                 index: submission.problem_index,
-                score: submission.score,
+                score: Number(submission.score),
                 passed: submission.passed,
                 attempts: submission.attempts,
                 submission_time: submission.submitted_at
             }];
         }
 
-        const totalScore = problemScores.reduce((sum, p) => sum + (p.score || 0), 0);
+        const totalScore = problemScores.reduce((sum, p) => sum + (Number(p.score) || 0), 0);
         const problemsSolved = problemScores.filter(p => p.passed).length;
 
+        // CRITICAL: Ensure we use UpdateItem or PutItem with ALL fields needed for the leaderboard
         await client.send(new PutItemCommand({
             TableName: "DebugStudentResults",
             Item: ddbMarshall({
                 result_id: resultId,
                 contest_id: contestId,
                 student_email: studentEmail,
+                student_name: submission.student_name || studentEmail, // Add this for leaderboard
                 problem_scores: problemScores,
-                total_score: totalScore,
+                total_score: totalScore, 
                 problems_solved: problemsSolved,
                 updated_at: new Date().toISOString(),
                 status: "in_progress"
@@ -6966,161 +6964,99 @@ app.post('/api/student/run-debug-test', verifyToken, async (req, res) => {
 });
 
 // Submit debug solution
+// POST /api/student/submit-debug-solution
 app.post('/api/student/submit-debug-solution', verifyToken, async (req, res) => {
     try {
         const { contest_id, problem_index, fixed_code } = req.body;
-        
-        if (!contest_id || problem_index === undefined || !fixed_code) {
-            return res.status(400).json({ 
-                success: false,
-                message: "Missing required fields" 
-            });
-        }
-        
-        // Get debug contest
-        const { Item } = await client.send(new GetItemCommand({
-            TableName: "DebugContests",
-            Key: ddbMarshall({ contest_id: contest_id })
-        }));
-        
-        if (!Item) {
-            return res.status(404).json({ 
-                success: false,
-                message: "Debug contest not found" 
-            });
-        }
-        
-        const contest = unmarshall(Item);
-        const problem = contest.problems?.[problem_index];
-        
-        if (!problem) {
-            return res.status(404).json({ 
-                success: false,
-                message: "Problem not found" 
-            });
-        }
-        
-        // Test the solution
-        const testResult = await testDebugSolution(fixed_code, problem, contest.language);
-        const score = testResult.passed ? (problem.score || 20) : 0;
-        
-        // Create submission record
-        const submissionId = `debugsub_${crypto.randomUUID().substring(0, 12)}`;
-        const submission = {
-            submission_id: submissionId,
-            contest_id: contest_id,
-            problem_index: problem_index,
-            student_email: req.user.email,
-            student_name: req.user.name || "Student",
-            fixed_code: fixed_code,
-            passed: testResult.passed,
-            score: score,
-            submitted_at: new Date().toISOString(),
-            problem_title: problem.title || `Bug ${problem_index + 1}`
-        };
-        
-        // Save to DebugSubmissions table
-        await client.send(new PutItemCommand({
-            TableName: "DebugSubmissions",
-            Item: ddbMarshall(submission)
-        }));
-        
-        // Update student results (using your existing updateStudentResults function)
-        // You might need to create a similar function for DebugStudentResults
-        // For now, let's update DebugStudentResults
-        const resultId = `debugres_${req.user.email}_${contest_id}`;
-        
-        // Get existing result or create new
+        const userEmail = req.user.email;
+        const resultId = `debugres_${userEmail}_${contest_id}`;
+
+        // 1. Fetch current progress to check attempt count
         const { Item: existingItem } = await client.send(new GetItemCommand({
             TableName: "DebugStudentResults",
             Key: ddbMarshall({ result_id: resultId })
         }));
-        
-        let problemScores = [];
-        let totalScore = score;
-        let problemsSolved = testResult.passed ? 1 : 0;
-        
+
+        let currentAttempts = 0;
+        let alreadyPassed = false;
+
         if (existingItem) {
             const existing = unmarshall(existingItem);
-            problemScores = existing.problem_scores || [];
+            const problemStats = existing.problem_scores?.find(p => p.index === problem_index);
             
-            // Update or add problem score
-            const existingIdx = problemScores.findIndex(p => p.index === problem_index);
-            if (existingIdx >= 0) {
-                if (score > problemScores[existingIdx].score) {
-                    problemScores[existingIdx] = {
-                        index: problem_index,
-                        score: score,
-                        passed: testResult.passed,
-                        submission_time: submission.submitted_at,
-                        problem_title: problem.title
-                    };
+            if (problemStats) {
+                // Check if the student has already exhausted attempts or passed
+                if (problemStats.attempts >= 2 || problemStats.passed) {
+                    return res.status(403).json({ 
+                        success: false, 
+                        message: "This question is locked. Maximum attempts reached or already solved." 
+                    });
                 }
-            } else {
-                problemScores.push({
-                    index: problem_index,
-                    score: score,
-                    passed: testResult.passed,
-                    submission_time: submission.submitted_at,
-                    problem_title: problem.title
-                });
+                currentAttempts = problemStats.attempts;
+                alreadyPassed = problemStats.passed;
             }
-            
-            // Recalculate totals
-            totalScore = problemScores.reduce((sum, p) => sum + p.score, 0);
-            problemsSolved = problemScores.filter(p => p.passed).length;
-        } else {
-            problemScores = [{
-                index: problem_index,
-                score: score,
-                passed: testResult.passed,
-                submission_time: submission.submitted_at,
-                problem_title: problem.title
-            }];
         }
+
+        // 2. Fetch contest details to get problem metadata and language
+        const { Item: contestItem } = await client.send(new GetItemCommand({
+            TableName: "DebugContests",
+            Key: ddbMarshall({ contest_id: contest_id })
+        }));
+
+        if (!contestItem) {
+            return res.status(404).json({ success: false, message: "Contest not found" });
+        }
+
+        const contest = unmarshall(contestItem);
+        const problem = contest.problems[problem_index];
+
+        // 3. Run the compiler test
+        const testResult = await testDebugSolution(fixed_code, problem, contest.language);
         
-        // Save updated result
+        // 4. Prepare submission object
+        const submission = {
+            contest_id,
+            problem_index,
+            fixed_code,
+            passed: testResult.passed,
+            // Only award points if they actually passed the test
+            score: testResult.passed ? (Number(problem.score) || 20) : 0,
+            attempts: currentAttempts + 1,
+            submitted_at: new Date().toISOString()
+        };
+
+        // 5. Save the detailed submission to the submissions log
+        const submissionId = `dsub_${crypto.randomUUID().substring(0, 8)}`;
         await client.send(new PutItemCommand({
-            TableName: "DebugStudentResults",
+            TableName: "DebugSubmissions",
             Item: ddbMarshall({
-                result_id: resultId,
-                contest_id: contest_id,
-                contest_name: contest.name,
-                student_email: req.user.email,
-                student_name: req.user.name || "Student",
-                total_score: totalScore,
-                max_score: contest.metadata?.total_score || 0,
-                problems_solved: problemsSolved,
-                total_problems: contest.problems?.length || 0,
-                problem_scores: problemScores,
-                updated_at: new Date().toISOString(),
-                status: problemsSolved === contest.problems?.length ? 'completed' : 'in_progress'
+                submission_id: submissionId,
+                student_email: userEmail,
+                ...submission
             })
         }));
-        
+
+        // 6. Update the results table and get the NEW total score
+        // This function now returns the totalScore and handles the "status" reserved keyword
+        const newTotalScore = await updateDebugStudentResults(userEmail, contest_id, contest, submission);
+
+        // 7. Return the final result to the frontend
         res.json({
             success: true,
             data: {
                 passed: testResult.passed,
-                score: score,
-                message: testResult.passed 
-                    ? "✅ Bug fixed successfully!" 
-                    : "❌ Test failed. Try again.",
+                attempts_taken: submission.attempts,
                 student_progress: {
-                    total_score: totalScore,
-                    problems_solved: problemsSolved,
-                    total_problems: contest.problems?.length || 0
-                }
+                    total_score: newTotalScore 
+                },
+                message: testResult.passed ? "✅ Fixed!" : "❌ Failed",
+                error: testResult.error // Include compiler error for student feedback
             }
         });
-        
+
     } catch (err) {
-        console.error("Submit Debug Solution Error:", err);
-        res.status(500).json({ 
-            success: false,
-            message: "Error submitting solution",
-            error: err.message 
-        });
+        console.error("Debug Submission Route Error:", err);
+        res.status(500).json({ success: false, message: "Internal server error: " + err.message });
     }
 });
 
