@@ -4488,13 +4488,16 @@ app.get('/api/student/available-debug-contests', verifyToken, async (req, res) =
 // POST /api/student/submit-solution
 // Now includes attempt tracking and locking after 2 submissions
 // POST /api/student/submit-solution
+// POST /api/student/submit-solution
+// Updated to include student name lookup and proper result persistence
 app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
     try {
         const { contest_id, problem_index, code, language } = req.body;
         const problemIndex = parseInt(problem_index);
         const userEmail = req.user.email;
 
-        const [contestData, resultData] = await Promise.all([
+        // 1. Fetch Contest, existing results, and Student Profile simultaneously
+        const [contestData, resultData, studentData] = await Promise.all([
             client.send(new GetItemCommand({
                 TableName: "Contests",
                 Key: ddbMarshall({ contest_id: contest_id })
@@ -4502,16 +4505,23 @@ app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
             client.send(new GetItemCommand({
                 TableName: "StudentResults",
                 Key: ddbMarshall({ result_id: `res_${userEmail}_${contest_id}` })
+            })),
+            client.send(new GetItemCommand({
+                TableName: "Students",
+                Key: ddbMarshall({ email: userEmail })
             }))
         ]);
 
         if (!contestData.Item) return res.status(404).json({ success: false, message: "Contest not found" });
         
         const contest = unmarshall(contestData.Item);
+        const student = studentData.Item ? unmarshall(studentData.Item) : {}; // Retrieve student profile
+        const studentName = student.name || userEmail; // Fallback to email if name is missing
+        
         const problem = contest.problems[problemIndex];
         const existingResult = resultData.Item ? unmarshall(resultData.Item) : null;
 
-        // Check if already passed or max attempts reached
+        // 2. Check if the question is already passed or max attempts reached
         const problemStats = existingResult?.problem_scores?.find(p => p.index === problemIndex);
         const currentAttempts = problemStats?.attempts || 0;
         const alreadyPassed = problemStats?.passed || false;
@@ -4523,6 +4533,7 @@ app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
             });
         }
 
+        // 3. Execute code against hidden test cases
         const compilerLang = language || 'python';
         const hiddenTestCases = problem.test_cases.filter(tc => tc.is_sample === false);
         
@@ -4534,15 +4545,18 @@ app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
             }
         }
 
+        // 4. Calculate scoring
         const problemMaxScore = parseInt(problem.score) || 20;
         const finalRawScore = Math.round((hiddenPassedCount / 5) * problemMaxScore);
         const allHiddenPassed = (hiddenPassedCount === 5);
 
+        // 5. Create Submission Object with explicit Name and Email
         const submission = {
             submission_id: `sub_${crypto.randomUUID().substring(0, 8)}`,
             contest_id: contest_id,
             problem_index: problemIndex,
-            student_email: userEmail,
+            student_email: userEmail,   // Ensure Email is captured
+            student_name: studentName,  // Ensure Name is captured
             code: code,
             passed: allHiddenPassed,
             score: finalRawScore,
@@ -4550,11 +4564,13 @@ app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
             submitted_at: new Date().toISOString()
         };
 
+        // 6. Save Submission and Update Results table
         await client.send(new PutItemCommand({ 
             TableName: "StudentSubmissions", 
             Item: ddbMarshall(submission) 
         }));
 
+        // This function must use submission.student_name to update the StudentResults table
         await updateRegularStudentResults(userEmail, contest_id, contest, submission);
 
         res.json({
@@ -4562,7 +4578,7 @@ app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
             data: {
                 passed: allHiddenPassed,
                 score: finalRawScore,
-                is_locked: true, // Lock immediately after any submission
+                is_locked: true,
                 message: allHiddenPassed ? "Solved! Problem Locked." : "Submitted! Problem Locked."
             }
         });
@@ -7721,19 +7737,69 @@ app.get('/api/moderator/contest/:id/export-csv', verifyToken, async (req, res) =
 
         const results = (Items || []).map(i => unmarshall(i));
         
-        // Define CSV Headers
+        // Header row
         let csvContent = "Student Email,Name,Score,Status,Problems Solved\n";
         
-        // Append Rows
         results.forEach(r => {
-            csvContent += `${r.student_email},${r.student_name},${r.total_score},${r.status},${r.problems_solved}\n`;
+            csvContent += `"${r.student_email}","${r.student_name}",${r.total_score},"${r.status}",${r.problems_solved}\n`;
         });
 
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename=contest_${contestId}_scores.csv`);
         res.status(200).send(csvContent);
     } catch (err) {
-        res.status(500).json({ success: false, message: "Export failed" });
+        res.status(500).json({ success: false, message: "Export failed", error: err.message });
+    }
+});
+// Global export for all student scores
+// Global export for all student scores with name/email fallback
+// Global export for all student scores with result_id parsing fallback
+app.get('/api/moderator/export-scores', verifyToken, async (req, res) => {
+    try {
+        const { Items } = await client.send(new ScanCommand({
+            TableName: "StudentResults"
+        }));
+
+        if (!Items || Items.length === 0) {
+            return res.status(404).json({ success: false, message: "No results found to export" });
+        }
+
+        const results = Items.map(i => unmarshall(i));
+        
+        let csvContent = "Student Email,Student Name,Contest Name,Score,Max Score,Status,Problems Solved,Last Updated\n";
+        
+        results.forEach(r => {
+            // FALLBACK LOGIC: Extract email from result_id if student_email is missing
+            let email = r.student_email || r.email;
+            
+            if (!email && r.result_id) {
+                // Splits 'res_email@domain.com_contestId' and takes the middle part
+                const parts = r.result_id.split('_');
+                if (parts.length >= 3) {
+                    email = parts[1]; 
+                }
+            }
+
+            const finalEmail = email || "Unknown Email";
+            const finalName = r.student_name || r.name || finalEmail; // Use extracted email as name if name is blank
+            const contest = r.contest_name || "Unknown Contest";
+            const score = r.total_score || 0;
+            const maxScore = r.max_score || 0;
+            const status = r.status || "N/A";
+            const solved = r.problems_solved || 0;
+            const date = r.updated_at || r.submission_time || "N/A";
+
+            csvContent += `"${finalEmail}","${finalName}","${contest}",${score},${maxScore},"${status}",${solved},"${date}"\n`;
+        });
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=Actual_Scores_${new Date().toISOString().split('T')[0]}.csv`);
+        
+        res.status(200).send(csvContent);
+
+    } catch (err) {
+        console.error("Export Error:", err);
+        res.status(500).json({ success: false, message: "Export failed", error: err.message });
     }
 });
 // ====================================================
