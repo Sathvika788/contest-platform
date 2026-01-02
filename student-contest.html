@@ -22,206 +22,58 @@
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; }
-        
-        body {
-            background-color: var(--slate-900);
-            color: var(--text-main);
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
+        body { background-color: var(--slate-900); color: var(--text-main); display: flex; height: 100vh; overflow: hidden; }
 
-        /* --- Sidebar Styling --- */
-        .sidebar {
-            width: 320px;
-            background: var(--slate-800);
-            border-right: 1px solid var(--slate-700);
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-            box-shadow: 10px 0 30px rgba(0,0,0,0.2);
-            z-index: 10;
-        }
-
-        .sidebar-header {
-            padding: 25px;
-            background: rgba(15, 23, 42, 0.5);
-            border-bottom: 1px solid var(--slate-700);
-        }
-
-        .logo-box {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .logo-img {
-            height: 40px;
-            width: 40px;
-            border-radius: 10px;
-            object-fit: cover;
-        }
-
-        .logo-text { font-size: 20px; font-weight: 800; color: var(--primary); }
-
+        /* Sidebar Styling */
+        .sidebar { width: 320px; background: var(--slate-800); border-right: 1px solid var(--slate-700); display: flex; flex-direction: column; flex-shrink: 0; }
+        .sidebar-header { padding: 25px; border-bottom: 1px solid var(--slate-700); }
+        .logo-img { height: 40px; border-radius: 8px; margin-right: 10px; }
         .problem-list { flex: 1; overflow-y: auto; padding: 15px; }
-
-        .problem-item {
-            padding: 18px;
-            margin-bottom: 12px;
-            border-radius: 14px;
-            cursor: pointer;
-            background: var(--slate-700);
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            border: 1px solid transparent;
-        }
-
-        .problem-item:hover { background: #3d4b5f; transform: translateX(5px); }
-        .problem-item.active {
-            background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%);
-            box-shadow: 0 10px 20px rgba(79, 70, 229, 0.3);
-        }
-
-        .status-dot { height: 10px; width: 10px; border-radius: 50%; margin-right: 15px; flex-shrink: 0; }
+        .problem-item { padding: 15px; margin-bottom: 10px; border-radius: 12px; cursor: pointer; background: var(--slate-700); transition: 0.3s; border: 1px solid transparent; }
+        .problem-item.active { background: var(--primary); border-color: white; }
+        .status-dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+        .status-passed { background: var(--success); }
         .status-pending { background: #94a3b8; }
-        .status-passed { background: var(--success); box-shadow: 0 0 10px var(--success); }
 
-        /* --- Main Workspace --- */
-        .main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background: #f1f5f9;
-            color: var(--slate-900);
-            overflow: hidden;
-        }
-
-        .top-bar {
-            padding: 15px 35px;
-            background: white;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            z-index: 5;
-        }
-
-        #currentProblemTitle { font-size: 1.4rem; font-weight: 800; color: var(--slate-800); }
-
-        .content-area {
-            flex: 1;
-            display: flex;
-            padding: 20px;
-            gap: 20px;
-            overflow: hidden; /* Fix: Keeps child scrollbars active */
-        }
-
-        .problem-details {
-            flex: 1;
-            overflow-y: auto; /* Fix: Enables vertical scrolling for descriptions */
-            background: white;
-            padding: 35px;
-            border-radius: 20px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-            max-height: 100%;
-        }
-
-        /* Custom scrollbar for Details Area */
-        .problem-details::-webkit-scrollbar { width: 8px; }
-        .problem-details::-webkit-scrollbar-track { background: #f1f5f9; }
-        .problem-details::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-
-        /* --- Updated Editor Column Styling --- */
-.editor-container {
-    flex: 1.3;
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-    overflow-y: auto; /* Enable vertical scrolling for the whole column */
-    padding-right: 10px; /* Space for the scrollbar */
-    max-height: 100%;
-}
-
-/* Fix CodeMirror height so it doesn't push buttons off-screen */
-.CodeMirror {
-    height: 450px !important; /* Fixed height to leave room for buttons/console */
-    border-radius: 15px;
-    font-size: 15px;
-    font-family: 'Fira Code', monospace;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-    flex-shrink: 0; /* Prevent the editor from collapsing */
-}
-
-/* Custom Scrollbar for the Editor Column */
-.editor-container::-webkit-scrollbar {
-    width: 6px;
-}
-
-.editor-container::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.editor-container::-webkit-scrollbar-thumb {
-    background: var(--slate-700);
-    border-radius: 10px;
-}
-
-.editor-container::-webkit-scrollbar-thumb:hover {
-    background: var(--primary);
-}
+        /* Main Workspace */
+        .main-content { flex: 1; display: flex; flex-direction: column; background: #f1f5f9; color: var(--slate-900); }
+        .top-bar { padding: 15px 30px; background: white; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .content-area { flex: 1; display: flex; padding: 20px; gap: 20px; overflow: hidden; }
+        
+        .problem-details { flex: 1; overflow-y: auto; background: white; padding: 30px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        .editor-container { flex: 1.4; display: flex; flex-direction: column; gap: 15px; }
+        
+        .CodeMirror { flex: 1; border-radius: 15px; font-size: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        
+        .sample-box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 10px; margin-top: 10px; font-family: monospace; font-size: 13px; }
         .controls { display: flex; gap: 12px; }
-        .btn {
-            padding: 14px 28px;
-            border-radius: 12px;
-            border: none;
-            font-weight: 700;
-            cursor: pointer;
-            transition: 0.3s;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
+        .btn { padding: 12px 24px; border-radius: 10px; border: none; font-weight: 700; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px; }
         .btn-run { background: #e2e8f0; color: var(--slate-800); }
         .btn-submit { background: var(--primary); color: white; flex: 1; justify-content: center; }
-        .btn-submit:hover { background: var(--primary-dark); transform: translateY(-2px); }
 
-        .loading-screen {
-            position: fixed;
-            inset: 0;
-            background: var(--slate-900);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-        }
-
+        .output-box { background: var(--slate-900); color: #e2e8f0; padding: 20px; border-radius: 0 0 15px 15px; font-family: monospace; height: 180px; overflow-y: auto; border-top: 2px solid var(--primary); }
+        
+        .loading-screen { position: fixed; inset: 0; background: var(--slate-900); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; }
         .spinner { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
-
-        pre { background: #f8fafc; padding: 12px; border-radius: 8px; font-size: 13px; border: 1px solid #e2e8f0; margin: 8px 0; }
     </style>
 </head>
 <body>
     <div id="loadingScreen" class="loading-screen">
         <div class="spinner"></div>
-        <p style="margin-top: 15px; color: #94a3b8;">Loading workspace...</p>
+        <p style="margin-top: 15px; color: #94a3b8;">Syncing Workspace...</p>
     </div>
 
     <div class="sidebar">
         <div class="sidebar-header">
-            <div class="logo-box">
+            <div style="display: flex; align-items: center;">
                 <img src="logo.jpg" alt="Logo" class="logo-img">
-                <span class="logo-text">ContestPro</span>
+                <span style="font-size: 20px; font-weight: 800; color: var(--primary);">ContestPro</span>
             </div>
-            <p style="font-size: 11px; color: #94a3b8; margin-top: 10px; text-transform: uppercase; letter-spacing: 1px;">Problems List</p>
         </div>
         <div class="problem-list" id="problemList"></div>
         <div style="padding: 20px; border-top: 1px solid var(--slate-700);">
-            <button onclick="window.location.href='student_dashboard.html'" class="btn btn-run" style="width: 100%; justify-content: center; font-size: 13px;">
+            <button onclick="window.location.href='student_dashboard.html'" class="btn btn-run" style="width: 100%; justify-content: center;">
                 <i class="fas fa-sign-out-alt"></i> Exit Contest
             </button>
         </div>
@@ -230,8 +82,8 @@
     <div class="main-content">
         <div class="top-bar">
             <h2 id="currentProblemTitle">Select a Problem</h2>
-            <div style="background: var(--slate-100); padding: 8px 15px; border-radius: 10px; font-weight: 700; color: var(--primary);">
-                <i class="fas fa-trophy"></i> Points System Enabled
+            <div id="scoreDisplay" style="background: #f1f5f9; padding: 8px 15px; border-radius: 10px; font-weight: 800; color: var(--primary);">
+                Score: 0 / 0
             </div>
         </div>
         
@@ -244,7 +96,7 @@
             </div>
 
             <div class="editor-container">
-                <div class="editor-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
                     <select id="langSelect" style="padding: 8px 15px; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600;">
                         <option value="python">Python 3</option>
                         <option value="cpp">C++</option>
@@ -252,22 +104,22 @@
                     </select>
                 </div>
 
-                <div id="editor" style="flex: 1; display: flex; flex-direction: column;"></div>
+                <div id="editor"></div>
 
                 <div class="controls">
-                    <button class="btn btn-run" onclick="runCode()">
-                        <i class="fas fa-play"></i> Run Tests
+                    <button class="btn btn-run" onclick="runSampleTests()">
+                        <i class="fas fa-vials"></i> Run 2 Samples
                     </button>
                     <button class="btn btn-submit" onclick="submitSolution()">
-                        <i class="fas fa-paper-plane"></i> Submit Solution
+                        <i class="fas fa-cloud-upload-alt"></i> Submit for Final Grading
                     </button>
                 </div>
 
                 <div id="outputContainer">
-                    <div style="background: var(--slate-800); color: white; padding: 10px 20px; border-radius: 15px 15px 0 0; font-size: 11px; font-weight: 700;">
-                        CONSOLE OUTPUT
+                    <div style="background: var(--slate-800); color: white; padding: 10px 20px; border-radius: 15px 15px 0 0; font-size: 11px; font-weight: 800;">
+                        TEST CASE CONSOLE
                     </div>
-                    <div id="outputBox" class="output-box">No output yet...</div>
+                    <div id="outputBox" class="output-box">Execution results will appear here...</div>
                 </div>
             </div>
         </div>
@@ -275,18 +127,11 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/clike/clike.min.js"></script>
     
     <script>
-        // Detect if we are running locally or on the deployed server
-const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-
-// Set API_URL dynamically
-const API_URL = isLocal 
-    ? "http://localhost:5000/api" 
-    : "http://3.108.67.225:5000/api";
-
-console.log("Connected to API at:", API_URL);
+        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+        const API_URL = isLocal ? "http://localhost:5000/api" : "http://3.108.67.225:5000/api";
+        
         const urlParams = new URLSearchParams(window.location.search);
         const contestId = urlParams.get('id');
         const token = localStorage.getItem('token');
@@ -296,14 +141,13 @@ console.log("Connected to API at:", API_URL);
         let editor = null;
 
         async function init() {
-            if (!token) { window.location.href = 'login.html'; return; }
+            if (!token) { window.location.href = 'index.html'; return; }
             
             editor = CodeMirror(document.getElementById("editor"), {
                 lineNumbers: true,
                 theme: "dracula",
                 mode: "python",
                 indentUnit: 4,
-                scrollbarStyle: "native",
                 lineWrapping: true
             });
 
@@ -322,8 +166,9 @@ console.log("Connected to API at:", API_URL);
                     renderProblemList();
                     if (contestData.problems.length > 0) selectProblem(0);
                     document.getElementById('loadingScreen').style.display = 'none';
+                    updateScoreDisplay();
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) { console.error("Load Error:", e); }
         }
 
         function selectProblem(index) {
@@ -331,15 +176,26 @@ console.log("Connected to API at:", API_URL);
             const prob = contestData.problems[index];
             document.getElementById('currentProblemTitle').innerText = prob.title;
             
+            // Logic to handle 2 Sample Test Cases from the backend
+            const samples = prob.test_cases ? prob.test_cases.filter(tc => tc.is_sample) : [];
+            
+            let samplesHtml = '';
+            samples.forEach((tc, i) => {
+                samplesHtml += `
+                    <div style="margin-top:15px;">
+                        <strong>Sample Case ${i+1}</strong>
+                        <div class="sample-box"><strong>Input:</strong><br>${tc.input}</div>
+                        <div class="sample-box"><strong>Output:</strong><br>${tc.output}</div>
+                    </div>`;
+            });
+
             document.getElementById('problemDescription').innerHTML = `
-                <h3 style="margin-bottom:15px; color:var(--primary-dark)">${prob.title}</h3>
-                <p style="white-space: pre-wrap; margin-bottom:20px; font-size:15px;">${prob.description}</p>
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
-                    <div><strong>Input Format</strong><pre>${prob.input_format || 'N/A'}</pre></div>
-                    <div><strong>Output Format</strong><pre>${prob.output_format || 'N/A'}</pre></div>
+                <h3 style="margin-bottom:10px; color:var(--primary-dark)">${prob.title}</h3>
+                <p style="white-space: pre-wrap; margin-bottom:20px; line-height:1.6;">${prob.description}</p>
+                <div style="background:#eef2ff; border-left:4px solid var(--primary); padding:15px; border-radius:8px; margin-bottom:20px;">
+                    <strong>Note:</strong> Your solution must pass 2 visible samples and 5 hidden test cases for full credit.
                 </div>
-                <h4 style="margin-top:20px">Sample Input</h4><pre>${prob.sample_input || 'None'}</pre>
-                <h4>Sample Output</h4><pre>${prob.sample_output || 'None'}</pre>
+                ${samplesHtml}
             `;
             
             document.querySelectorAll('.problem-item').forEach((item, idx) => {
@@ -353,107 +209,75 @@ console.log("Connected to API at:", API_URL);
                 <div class="problem-item ${selectedProblemIndex === i ? 'active' : ''}" onclick="selectProblem(${i})">
                     <span class="status-dot ${p.passed ? 'status-passed' : 'status-pending'}"></span>
                     <div style="flex:1">
-                        <div style="font-weight:700; font-size:14px;">${p.title}</div>
-                        <div style="font-size:11px; opacity:0.8;">Score: ${p.score || 20}</div>
+                        <div style="font-weight:700; font-size:14px; color:white;">${p.title}</div>
+                        <div style="font-size:11px; color:#94a3b8;">Value: ${p.score || 20} pts</div>
                     </div>
                 </div>
             `).join('');
         }
 
-        // Fix: Connects IDE workspace to server-side testing logic
-        async function runCode() {
-    const code = editor.getValue();
-    const language = document.getElementById('langSelect').value;
-    const outputBox = document.getElementById('outputBox');
-    
-    if (!code.trim()) return alert("Please write some code first!");
-    
-    // Provide immediate visual feedback
-    outputBox.innerHTML = '<div class="loading"></div> Running sample tests...';
-    
-    try {
-        const response = await fetch(`${API_URL}/student/test-code`, {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}` 
-            },
-            body: JSON.stringify({
-                contest_id: contestId,
-                problem_index: selectedProblemIndex,
-                code: code,
-                language: language
-            })
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            // Clear the "Running..." message and show actual data
-            let displayHtml = `<div style="color: #6366f1; font-weight: 800; margin-bottom: 10px;">${result.data.message}</div>`;
-            
-            if (result.data.sample_results && result.data.sample_results.length > 0) {
-                result.data.sample_results.forEach(r => {
-                    const statusColor = r.passed ? '#10b981' : '#ef4444';
-                    const statusIcon = r.passed ? '✅' : '❌';
-                    
-                    displayHtml += `
-                        <div style="border-left: 4px solid ${statusColor}; padding-left: 10px; margin-bottom: 15px; background: rgba(255,255,255,0.05);">
-                            <div style="font-weight: bold; color: ${statusColor}">Test Case ${r.test_case}: ${r.passed ? 'PASSED' : 'FAILED'} ${statusIcon}</div>
-                            <div style="font-size: 12px; margin-top: 5px;">
-                                <strong>Input:</strong> <span style="color: #94a3b8">${r.input || 'N/A'}</span><br>
-                                <strong>Output:</strong> <span style="color: ${statusColor}">${r.output || '(no output)'}</span><br>
-                                <strong>Expected:</strong> <span style="color: #10b981">${r.expected}</span>
-                            </div>
-                            ${r.error ? `<div style="color: #f87171; font-size: 11px; margin-top: 5px;">Error: ${r.error}</div>` : ''}
-                        </div>
-                    `;
-                });
-            } else {
-                displayHtml += `<div style="color: #ef4444;">No sample test cases found for this problem.</div>`;
-            }
-            outputBox.innerHTML = displayHtml;
-        } else {
-            outputBox.innerHTML = `<div style="color: #ef4444;">Execution Error: ${result.message}</div>`;
+        function updateScoreDisplay() {
+            const prog = contestData.student_progress;
+            document.getElementById('scoreDisplay').innerText = `Total Score: ${prog.total_score} / ${prog.max_score}`;
         }
-    } catch (e) {
-        outputBox.innerHTML = `<div style="color: #ef4444;">Server Connection Error. Ensure the backend is running at ${API_URL}</div>`;
-        console.error("Run Code Error:", e);
-    }
-}
-        // Fix: Connects Submit button to server-side grading logic
+
+        // Logic to run 2 Sample Cases for immediate feedback
+        async function runSampleTests() {
+            const code = editor.getValue();
+            const language = document.getElementById('langSelect').value;
+            const outputBox = document.getElementById('outputBox');
+            
+            if (!code.trim()) return alert("Write some code first!");
+            outputBox.innerHTML = '<div class="spinner" style="width:15px; height:15px; border-width:2px;"></div> Running samples...';
+            
+            try {
+                const response = await fetch(`${API_URL}/student/test-code`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ contest_id: contestId, problem_index: selectedProblemIndex, code, language })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    let html = `<div style="color:var(--primary); font-weight:800; margin-bottom:10px;">SAMPLE TEST RESULTS:</div>`;
+                    result.data.sample_results.forEach(r => {
+                        const color = r.passed ? '#10b981' : '#ef4444';
+                        html += `
+                            <div style="border-left: 3px solid ${color}; padding-left:10px; margin-bottom:10px;">
+                                <div style="color:${color}; font-weight:bold;">Case ${r.test_case}: ${r.passed ? 'PASSED' : 'FAILED'}</div>
+                                <div style="font-size:12px; margin-top:3px;">Actual: ${r.output || '(empty)'}</div>
+                                <div style="font-size:12px;">Expected: ${r.expected}</div>
+                            </div>`;
+                    });
+                    outputBox.innerHTML = html;
+                }
+            } catch (e) { outputBox.innerHTML = "Connection Error."; }
+        }
+
+        // Logic to submit and run 5 Hidden Cases for final score
         async function submitSolution() {
             const code = editor.getValue();
             const language = document.getElementById('langSelect').value;
             
             if (!code.trim()) return alert("Code cannot be empty.");
-            if (!confirm("Submit this solution for final grading?")) return;
+            if (!confirm("Submit for final grading? Points will be calculated based on 5 hidden test cases.")) return;
 
             try {
                 const response = await fetch(`${API_URL}/student/submit-solution`, {
                     method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}` 
-                    },
-                    body: JSON.stringify({
-                        contest_id: contestId,
-                        problem_index: selectedProblemIndex,
-                        code: code,
-                        language: language
-                    })
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ contest_id: contestId, problem_index: selectedProblemIndex, code, language })
                 });
                 
                 const result = await response.json();
                 if (result.success) {
-                    alert(`Result: ${result.data.message}\nScore: ${result.data.score}/${result.data.max_score}`);
+                    const data = result.data;
+                    alert(`Final Result: ${data.message}\nHidden Passed: ${data.hidden_passed}/5\nScore Earned: ${data.score}`);
                     loadContest(); 
                 } else {
                     alert("Submission error: " + result.message);
                 }
-            } catch (e) {
-                alert("Critical error during submission.");
-            }
+            } catch (e) { alert("Critical error during submission."); }
         }
 
         window.onload = init;
