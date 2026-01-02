@@ -3007,6 +3007,43 @@ app.get('/api/moderator/debug-contest/:id', verifyToken, async (req, res) => {
     }
 });
 
+// Toggle contest status between 'active' and 'held'
+app.patch('/api/moderator/contest/:id/status', verifyToken, async (req, res) => {
+    try {
+        const contestId = req.params.id;
+        const { status } = req.body; // Expecting 'active' or 'held'
+
+        if (!['active', 'held'].includes(status)) {
+            return res.status(400).json({ success: false, message: "Invalid status" });
+        }
+
+        // Verify ownership before updating
+        const { Item } = await client.send(new GetItemCommand({
+            TableName: "Contests",
+            Key: ddbMarshall({ contest_id: contestId })
+        }));
+
+        if (!Item) return res.status(404).json({ success: false, message: "Contest not found" });
+        const contest = unmarshall(Item);
+
+        if (contest.created_by !== req.user.email && req.user.role !== 'admin') {
+            return res.status(403).json({ success: false, message: "Unauthorized" });
+        }
+
+        await client.send(new UpdateItemCommand({
+            TableName: "Contests",
+            Key: ddbMarshall({ contest_id: contestId }),
+            UpdateExpression: "SET #s = :status",
+            ExpressionAttributeNames: { "#s": "status" },
+            ExpressionAttributeValues: ddbMarshall({ ":status": status })
+        }));
+
+        res.json({ success: true, message: `Contest ${status === 'held' ? 'held' : 'released'} successfully` });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // Update debugging contest
 app.patch('/api/moderator/debug-contest/:id', verifyToken, async (req, res) => {
     try {
