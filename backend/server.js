@@ -4183,6 +4183,7 @@ async function updateRegularStudentResults(studentEmail, contestId, contest, sub
     try {
         const resultId = `res_${studentEmail}_${contestId}`;
         
+        // 1. Fetch existing results to update specific problem scores
         const { Item: existingItem } = await client.send(new GetItemCommand({
             TableName: "StudentResults",
             Key: ddbMarshall({ result_id: resultId })
@@ -4197,58 +4198,68 @@ async function updateRegularStudentResults(studentEmail, contestId, contest, sub
             const existingProbIdx = problemScores.findIndex(p => p.index === submission.problem_index);
             
             if (existingProbIdx >= 0) {
-                // Keep the highest score for this problem
+                // Keep the highest score for this problem to ensure best attempt is recorded
                 if (submission.score > problemScores[existingProbIdx].score) {
                     problemScores[existingProbIdx] = {
                         index: submission.problem_index,
                         score: submission.score,
                         passed: submission.passed,
                         submission_time: submission.submitted_at,
-                        problem_title: submission.problem_title
+                        problem_title: submission.problem_title || `Problem ${submission.problem_index + 1}`
                     };
                     console.log(`Updated problem ${submission.problem_index} score to ${submission.score}`);
                 }
             } else {
+                // Add first submission for this specific problem
                 problemScores.push({
                     index: submission.problem_index,
                     score: submission.score,
                     passed: submission.passed,
                     submission_time: submission.submitted_at,
-                    problem_title: submission.problem_title
+                    problem_title: submission.problem_title || `Problem ${submission.problem_index + 1}`
                 });
                 console.log(`Added new problem ${submission.problem_index} with score ${submission.score}`);
             }
         } else {
+            // Create the first entry for this student in this contest
             problemScores = [{
                 index: submission.problem_index,
                 score: submission.score,
                 passed: submission.passed,
                 submission_time: submission.submitted_at,
-                problem_title: submission.problem_title
+                problem_title: submission.problem_title || `Problem ${submission.problem_index + 1}`
             }];
             console.log(`Created first submission for problem ${submission.problem_index} with score ${submission.score}`);
         }
         
+        // 2. CRITICAL FIX: Recalculate Totals and Max Score
+        // Sum student's current points
         const totalScore = problemScores.reduce((sum, p) => sum + p.score, 0);
+        
+        // Calculate the maximum possible points for the entire contest
+        const contestMaxScore = (contest.problems || []).reduce((sum, p) => sum + (parseInt(p.score) || 20), 0);
+        
         const problemsSolved = problemScores.filter(p => p.passed).length;
         let status = 'not_started';
         
         if (problemsSolved === totalProblems && totalProblems > 0) {
             status = 'completed';
-        } else if (problemsSolved > 0) {
+        } else if (problemsSolved > 0 || problemScores.length > 0) {
             status = 'in_progress';
         }
         
-        console.log(`Updating results: totalScore=${totalScore}, problemsSolved=${problemsSolved}/${totalProblems}, status=${status}`);
+        console.log(`Updating results: totalScore=${totalScore}/${contestMaxScore}, problemsSolved=${problemsSolved}/${totalProblems}, status=${status}`);
 
+        // 3. Update the Database with the new max_score field
         await client.send(new UpdateItemCommand({
             TableName: "StudentResults",
             Key: ddbMarshall({ result_id: resultId }),
-            UpdateExpression: "SET problem_scores = :ps, total_score = :ts, problems_solved = :psv, #st = :st, updated_at = :ua, contest_name = :cn",
+            UpdateExpression: "SET problem_scores = :ps, total_score = :ts, max_score = :ms, problems_solved = :psv, #st = :st, updated_at = :ua, contest_name = :cn",
             ExpressionAttributeNames: { "#st": "status" },
             ExpressionAttributeValues: ddbMarshall({
                 ":ps": problemScores,
                 ":ts": totalScore,
+                ":ms": contestMaxScore, // This ensures percentage math (ts/ms) works correctly
                 ":psv": problemsSolved,
                 ":st": status,
                 ":ua": new Date().toISOString(),
@@ -4256,7 +4267,7 @@ async function updateRegularStudentResults(studentEmail, contestId, contest, sub
             })
         }));
         
-        console.log("Student results updated successfully");
+        console.log("Student results updated successfully with max_score validation");
         
     } catch (err) {
         console.error("Update Regular Results Error:", err.message);
@@ -4499,6 +4510,7 @@ app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
         const { contest_id, problem_index, code, language } = req.body;
         const problemIndex = parseInt(problem_index);
 
+        // Fetch the contest data to get test cases and scores
         const { Item } = await client.send(new GetItemCommand({
             TableName: "Contests",
             Key: ddbMarshall({ contest_id: contest_id })
@@ -4508,13 +4520,16 @@ app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
         const contest = unmarshall(Item);
         const problem = contest.problems[problemIndex];
 
-        // Filter cases
+        // 1. Calculate Max Possible Score for this specific problem
+        const problemMaxScore = problem.score || 20;
+
+        // Filter cases: 2 samples for feedback, 5 hidden for final scoring
         const sampleTestCases = problem.test_cases.filter(tc => tc.is_sample === true);
         const hiddenTestCases = problem.test_cases.filter(tc => tc.is_sample === false);
         
         const compilerLang = language || 'python';
 
-        // 1. Run 2 Sample Cases (Visible results for student)
+        // 2. Run Sample Cases for immediate feedback
         let sampleResults = [];
         for (let i = 0; i < sampleTestCases.length; i++) {
             const tc = sampleTestCases[i];
@@ -4522,26 +4537,23 @@ app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
             const passed = exec.output.trim() === tc.output.trim();
             sampleResults.push({
                 test_case: i + 1,
-                input: tc.input,
-                expected: tc.output,
-                actual: exec.output,
-                passed: passed,
-                error: exec.error
+                passed: passed
             });
         }
 
-        // 2. Run 5 Hidden Cases (Final scoring)
-        let hiddenPassed = 0;
+        // 3. Run 5 Hidden Cases for final scoring
+        let hiddenPassedCount = 0;
         for (const tc of hiddenTestCases) {
             const exec = await runOnCompiler(compilerLang, code, tc.input);
             if (exec.output.trim() === tc.output.trim()) {
-                hiddenPassed++;
+                hiddenPassedCount++;
             }
         }
 
-        // 3. Final Score (Each hidden case = 20% of problem points)
-        const finalScore = Math.round((hiddenPassed / 5) * (problem.score || 20));
-        const allHiddenPassed = (hiddenPassed === 5);
+        // 4. Calculate Final Raw Score (Each hidden case = 20% of problem points)
+        // This ensures partial points are awarded correctly
+        const finalRawScore = Math.round((hiddenPassedCount / 5) * problemMaxScore);
+        const allHiddenPassed = (hiddenPassedCount === 5);
 
         const submission = {
             submission_id: `sub_${crypto.randomUUID().substring(0, 8)}`,
@@ -4550,22 +4562,28 @@ app.post('/api/student/submit-solution', verifyToken, async (req, res) => {
             student_email: req.user.email,
             code: code,
             passed: allHiddenPassed,
-            score: finalScore,
+            score: finalRawScore, // Raw points awarded
+            max_possible_problem_score: problemMaxScore, // Storing max for validation
             submitted_at: new Date().toISOString()
         };
 
-        // Save submission and update student record
-        await client.send(new PutItemCommand({ TableName: "StudentSubmissions", Item: ddbMarshall(submission) }));
+        // 5. Save submission to history
+        await client.send(new PutItemCommand({ 
+            TableName: "StudentSubmissions", 
+            Item: ddbMarshall(submission) 
+        }));
+
+        // 6. Update aggregated results
+        // This helper function must recalculate the total contest max_score
         await updateRegularStudentResults(req.user.email, contest_id, contest, submission);
 
         res.json({
             success: true,
             data: {
                 passed: allHiddenPassed,
-                score: finalScore,
-                sample_results: sampleResults,
-                hidden_passed: hiddenPassed,
-                message: allHiddenPassed ? "All hidden test cases passed!" : `Passed ${hiddenPassed}/5 hidden test cases.`
+                score: finalRawScore,
+                hidden_passed: hiddenPassedCount,
+                message: allHiddenPassed ? "All hidden test cases passed!" : `Passed ${hiddenPassedCount}/5 hidden test cases.`
             }
         });
     } catch (err) {
@@ -4849,12 +4867,14 @@ app.post('/api/diagnose-submission', async (req, res) => {
     }
 });
 // Student get specific debugging contest
+// Student get specific debugging contest with progression check
+// Student get specific debugging contest with progression check
 app.get('/api/student/debug-contest/:id', verifyToken, async (req, res) => {
     try {
         const debugContestId = req.params.id;
         const userEmail = req.user.email;
 
-        // 1. Find if there is a progression rule for this debug contest
+        // 1. Check if there is an active progression rule for this debug contest
         const ruleParams = {
             TableName: "ContestProgressionRules",
             FilterExpression: "debug_contest_id = :id AND #s = :status",
@@ -4867,7 +4887,7 @@ app.get('/api/student/debug-contest/:id', verifyToken, async (req, res) => {
         if (rules.length > 0) {
             const rule = rules[0];
             
-            // 2. Check student's score in the regular contest
+            // 2. Fetch student's score in the prerequisite normal contest
             const resultParams = {
                 TableName: "StudentResults",
                 Key: ddbMarshall({ result_id: `res_${userEmail}_${rule.normal_contest_id}` })
@@ -4875,30 +4895,51 @@ app.get('/api/student/debug-contest/:id', verifyToken, async (req, res) => {
             const resultData = await client.send(new GetItemCommand(resultParams));
             
             if (!resultData.Item) {
-                return res.status(403).json({ success: false, message: "Prerequisite contest not attempted." });
+                return res.status(403).json({ 
+                    success: false, 
+                    message: "Locked: Complete the prerequisite contest first." 
+                });
             }
 
             const result = unmarshall(resultData.Item);
-            if (result.total_score < rule.passing_score) {
+            
+            // 3. FIX: Calculate actual percentage based on the contest's max score
+            const studentScore = result.total_score || 0;
+            const maxPossibleScore = result.max_score || 100; // Fallback only if max_score is missing
+            const actualPercentage = (studentScore / maxPossibleScore) * 100;
+
+            if (actualPercentage < rule.passing_score) {
                 return res.status(403).json({ 
                     success: false, 
-                    message: `Locked: You need ${rule.passing_score}% to enter.` 
+                    message: `Locked: You need ${rule.passing_score}% to enter. Your current score is ${actualPercentage.toFixed(1)}%.` 
                 });
             }
         }
 
-        // 3. Fetch the actual contest data if passed or no rule exists
+        // 4. Fetch and return the actual debugging contest data
         const { Item } = await client.send(new GetItemCommand({
             TableName: "DebugContests",
             Key: ddbMarshall({ contest_id: debugContestId })
         }));
 
-        if (!Item) return res.status(404).json({ success: false, message: "Contest not found" });
-        res.json({ success: true, data: unmarshall(Item) });
+        if (!Item) {
+            return res.status(404).json({ 
+                success: false, 
+                message: "Debugging contest not found." 
+            });
+        }
+        
+        res.json({ 
+            success: true, 
+            data: unmarshall(Item) 
+        });
 
     } catch (err) {
         console.error("Debug Contest Access Error:", err);
-        res.status(500).json({ success: false, message: "Server error checking access" });
+        res.status(500).json({ 
+            success: false, 
+            message: "Server error checking access: " + err.message 
+        });
     }
 });
 
@@ -6947,149 +6988,79 @@ async function getDebugContestWithProgress(contestId, studentEmail) {
 // ====================================================
 
 // Get debug contest for student (for student-debug.html)
+// Student get specific debugging contest with progression check
 app.get('/api/student/debug-contest/:id', verifyToken, async (req, res) => {
     try {
-        const contestId = req.params.id;
+        const debugContestId = req.params.id;
         const userEmail = req.user.email;
 
-        console.log(`Loading debug contest ${contestId} for student ${userEmail}`);
-
-        // Get contest data with student progress
-        const contestData = await getDebugContestWithProgress(contestId, userEmail);
-        
-        if (!contestData || !contestData.contest) {
-            return res.status(404).json({
-                success: false,
-                message: "Debugging contest not found"
-            });
-        }
-
-        const { contest, result, submissions } = contestData;
-
-        // Check if contest is active
-        if (contest.status !== 'active') {
-            return res.status(400).json({
-                success: false,
-                message: "This debugging contest is no longer active"
-            });
-        }
-
-        // Check progression rules if needed
-        let hasAccess = true;
-        let accessMessage = "";
-        
-        if (contest.requires_prerequisite && contest.prerequisite_contest_id) {
-            const normalContestId = contest.prerequisite_contest_id;
-            
-            // Get student's result for the prerequisite contest
-            const normalResultId = `res_${userEmail}_${normalContestId}`;
-            const { Item: normalResultItem } = await client.send(new GetItemCommand({
-                TableName: "StudentResults",
-                Key: ddbMarshall({ result_id: normalResultId })
-            }));
-
-            if (!normalResultItem) {
-                hasAccess = false;
-                accessMessage = "You need to complete the prerequisite contest first";
-            } else {
-                const normalResult = unmarshall(normalResultItem);
-                
-                // Get progression rule for passing score
-                const { Items: ruleItems } = await client.send(new ScanCommand({
-                    TableName: "ContestProgressionRules",
-                    FilterExpression: "debug_contest_id = :debugId",
-                    ExpressionAttributeValues: ddbMarshall({
-                        ":debugId": contestId
-                    })
-                }));
-                
-                const passingScore = ruleItems && ruleItems.length > 0 
-                    ? unmarshall(ruleItems[0]).passing_score 
-                    : 70;
-
-                hasAccess = normalResult.status === 'completed' && 
-                    normalResult.total_score >= passingScore;
-                
-                if (!hasAccess) {
-                    accessMessage = `You need to score at least ${passingScore}% in the prerequisite contest`;
-                }
-            }
-        }
-
-        // Prepare problems with student submissions
-        const problemsWithProgress = contest.problems?.map((problem, index) => {
-            const problemSubmissions = submissions.filter(s => s.problem_index === index);
-            const bestSubmission = problemSubmissions.length > 0 
-                ? problemSubmissions.reduce((best, current) => 
-                    current.score > best.score ? current : best
-                , problemSubmissions[0])
-                : null;
-
-            return {
-                index: index,
-                title: problem.title || `Bug ${index + 1}`,
-                description: problem.description || "",
-                buggy_code: problem.buggy_code || "",
-                input: problem.input || "",
-                output: problem.output || "",
-                hints: problem.hints || [],
-                explanation: problem.explanation || "",
-                difficulty: problem.difficulty || 'Medium',
-                score: problem.score || 20,
-                best_submission: bestSubmission,
-                passed: bestSubmission?.passed || false,
-                best_score: bestSubmission?.score || 0,
-                attempts: problemSubmissions.length,
-                last_attempt: problemSubmissions.length > 0 
-                    ? problemSubmissions[0].submitted_at 
-                    : null
-            };
-        }) || [];
-
-        // Prepare final response
-        const responseData = {
-            contest_id: contest.contest_id,
-            name: contest.name,
-            description: contest.description || "Debugging Contest",
-            type: contest.type || 'debugging',
-            language: contest.language || 'python',
-            target_type: contest.target_type || 'overall',
-            target_college: contest.target_college || '',
-            has_access: hasAccess,
-            access_message: accessMessage,
-            created_at: contest.created_at,
-            time_limit: contest.metadata?.time_limit || 60,
-            total_score: contest.metadata?.total_score || 0,
-            problems: problemsWithProgress,
-            student_progress: {
-                total_score: result?.total_score || 0,
-                max_score: contest.metadata?.total_score || 0,
-                problems_solved: result?.problems_solved || 0,
-                total_problems: contest.problems?.length || 0,
-                submissions: submissions.length,
-                status: result?.status || 'not_started',
-                started_at: result?.started_at || null,
-                last_submission: submissions.length > 0 ? submissions[0].submitted_at : null
-            },
-            metadata: {
-                method: contest.method || 'manual',
-                difficulty: contest.metadata?.difficulty || 'Medium',
-                topic: contest.metadata?.topic || 'General Debugging',
-                total_problems: contest.problems?.length || 0
-            }
+        // 1. Check if there is an active progression rule for this debug contest
+        const ruleParams = {
+            TableName: "ContestProgressionRules",
+            FilterExpression: "debug_contest_id = :id AND #s = :status",
+            ExpressionAttributeNames: { "#s": "status" },
+            ExpressionAttributeValues: ddbMarshall({ ":id": debugContestId, ":status": "active" })
         };
+        const ruleData = await client.send(new ScanCommand(ruleParams));
+        const rules = (ruleData.Items || []).map(i => unmarshall(i));
 
-        res.json({
-            success: true,
-            data: responseData
+        if (rules.length > 0) {
+            const rule = rules[0];
+            
+            // 2. Fetch student's score in the prerequisite normal contest
+            const resultId = `res_${userEmail}_${rule.normal_contest_id}`;
+            const resultParams = {
+                TableName: "StudentResults",
+                Key: ddbMarshall({ result_id: resultId })
+            };
+            const resultData = await client.send(new GetItemCommand(resultParams));
+            
+            // If resultData.Item is missing, the student hasn't completed the prerequisite
+            if (!resultData.Item) {
+                return res.status(403).json({ 
+                    success: false, 
+                    message: "Locked: Complete the prerequisite contest first." 
+                });
+            }
+
+            const result = unmarshall(resultData.Item);
+            
+            // 3. Calculate actual percentage based on dynamic max_score
+            const studentScore = result.total_score || 0;
+            const maxPossibleScore = result.max_score || 100; 
+            const actualPercentage = (studentScore / maxPossibleScore) * 100;
+
+            if (actualPercentage < rule.passing_score) {
+                return res.status(403).json({ 
+                    success: false, 
+                    message: `Locked: You need ${rule.passing_score}% to enter. Your current score is ${actualPercentage.toFixed(1)}%.` 
+                });
+            }
+        }
+
+        // 4. Fetch the debugging contest data
+        const { Item } = await client.send(new GetItemCommand({
+            TableName: "DebugContests",
+            Key: ddbMarshall({ contest_id: debugContestId })
+        }));
+
+        if (!Item) {
+            return res.status(404).json({ 
+                success: false, 
+                message: "Debugging contest not found." 
+            });
+        }
+        
+        res.json({ 
+            success: true, 
+            data: unmarshall(Item) 
         });
 
     } catch (err) {
-        console.error("Get Student Debug Contest Error:", err);
-        res.status(500).json({
-            success: false,
-            message: "Error fetching debugging contest",
-            error: err.message
+        console.error("Debug Contest Access Error:", err);
+        res.status(500).json({ 
+            success: false, 
+            message: "Server error checking access: " + err.message 
         });
     }
 });
