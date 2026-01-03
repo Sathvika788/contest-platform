@@ -16,6 +16,7 @@
             --text-muted: #64748b;
             --success: #10b981;
             --danger: #ef4444;
+            --info: #0ea5e9;
         }
 
         * { box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; padding: 0; }
@@ -58,6 +59,8 @@
         .btn-primary { background: var(--primary); color: white; width: 100%; }
         .btn-success { background: var(--success); color: white; }
         .btn-success:hover { background: #059669; transform: translateY(-1px); }
+        .btn-info { background: var(--info); color: white; }
+        .btn-info:hover { background: #0284c7; }
         
         .problem-card { background: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         .badge { padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; background: #e0e7ff; color: var(--primary); }
@@ -79,7 +82,15 @@
         }
         .contest-info h4 { font-size: 0.95rem; color: var(--sidebar-bg); margin-bottom: 4px; }
         .contest-meta { font-size: 0.75rem; color: var(--text-muted); display: flex; gap: 15px; }
-        .action-btns { display: flex; gap: 10px; }
+        .action-btns { display: flex; gap: 10px; align-items: center; }
+        
+        .btn-report {
+            background: #f0fdf4; border: 1.5px solid #bbf7d0; color: #166534; 
+            padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: 0.3s;
+            font-size: 0.8rem; font-weight: 600; display: flex; align-items: center; gap: 5px;
+        }
+        .btn-report:hover { background: #dcfce7; }
+
         .btn-outline-danger { 
             background: transparent; border: 1.5px solid #fee2e2; color: var(--danger); 
             padding: 8px; border-radius: 8px; cursor: pointer; transition: 0.3s;
@@ -105,7 +116,6 @@
                 <a class="nav-item" href="moderator.html"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
                 <a class="nav-item" href="create-contest.html"><i class="fas fa-code"></i> Regular Contest</a>
                 <a class="nav-item active"><i class="fas fa-bug"></i> Debug Contest</a>
-                <a class="nav-item" href="debug-results.html"><i class="fas fa-chart-bar"></i> Results</a>
                 <a class="nav-item" onclick="logout()" style="margin-top:auto; color:#f87171"><i class="fas fa-sign-out-alt"></i> Logout</a>
             </div>
             
@@ -262,6 +272,9 @@
                                 </div>
                             </div>
                             <div class="action-btns">
+                                <button class="btn-report" onclick="downloadReport('${contest.id}', '${contest.title}')">
+                                    <i class="fas fa-file-download"></i> Report
+                                </button>
                                 <button class="btn-outline-danger" onclick="deleteDebugContest('${contest.id}')" title="Delete Contest">
                                     <i class="fas fa-trash-alt"></i>
                                 </button>
@@ -274,6 +287,33 @@
             } catch (err) {
                 console.error("Error loading contests:", err);
                 document.getElementById('activeDebugContests').innerHTML = `<p style="color:var(--danger)">Failed to load contests.</p>`;
+            }
+        }
+
+        // --- NEW REPORT DOWNLOAD FUNCTION ---
+        async function downloadReport(contestId, contestTitle) {
+            try {
+                showToast("Generating report...", "success");
+                const res = await fetch(`${API_URL}/moderator/debug-contest/${contestId}/export-csv`, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!res.ok) throw new Error("Export failed");
+
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Report_${contestTitle.replace(/\s+/g, '_')}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+                showToast("Download started", "success");
+            } catch (err) {
+                console.error("Download Error:", err);
+                showToast("Error downloading report", "error");
             }
         }
 
@@ -392,67 +432,54 @@
         }
 
         async function launchContest() {
-    // 1. Get fundamental inputs
-    const name = document.getElementById('contestName').value;
-    const language = document.getElementById('progLanguage').value;
-    const targetType = document.getElementById('targetType').value;
-    const targetCollege = targetType === 'college' ? document.getElementById('targetCollege').value : '';
+            const name = document.getElementById('contestName').value;
+            const language = document.getElementById('progLanguage').value;
+            const targetType = document.getElementById('targetType').value;
+            const targetCollege = targetType === 'college' ? document.getElementById('targetCollege').value : '';
 
-    // 2. Validation: Ensure a name is provided and problems are in the queue
-    if (!name || problemQueue.length === 0) {
-        return showToast("Settings incomplete. Please name the contest and add problems.", "error");
-    }
+            if (!name || problemQueue.length === 0) {
+                return showToast("Settings incomplete. Please name the contest and add problems.", "error");
+            }
 
-    // 3. Construct the payload
-    // Crucial: 'created_by' must match your DynamoDB GSI Partition Key exactly
-    const payload = {
-        name: name,
-        language: language,
-        problems: problemQueue,
-        targetType: targetType,
-        targetCollege: targetCollege,
-        created_by: localStorage.getItem('email') // This connects the contest to your dashboard
-    };
+            const payload = {
+                name: name,
+                language: language,
+                problems: problemQueue,
+                targetType: targetType,
+                targetCollege: targetCollege,
+                created_by: localStorage.getItem('email')
+            };
 
-    try {
-        // 4. Send the request to the backend
-        const res = await fetch(`${API_URL}/moderator/create-debug-contest`, {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json', 
-                'Authorization': `Bearer ${token}` 
-            },
-            body: JSON.stringify(payload)
-        });
+            try {
+                const res = await fetch(`${API_URL}/moderator/create-debug-contest`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        'Authorization': `Bearer ${token}` 
+                    },
+                    body: JSON.stringify(payload)
+                });
 
-        const data = await res.json();
+                const data = await res.json();
 
-        if (data.success) {
-            // 5. Success handling
-            showToast("Debug Contest Launched Successfully!", "success");
-            
-            // Clear the local problem queue
-            problemQueue = [];
-            renderQueue();
-            
-            // Clear the form
-            document.getElementById('contestName').value = '';
-            
-            // Refresh the "Active Debug Contests" list immediately
-            loadExistingDebugContests(); 
-            
-            // Optional: Redirect to dashboard after a short delay
-            setTimeout(() => {
-                window.location.href = 'moderator.html';
-            }, 1500);
-        } else {
-            showToast(data.message || "Failed to launch contest", "error");
+                if (data.success) {
+                    showToast("Debug Contest Launched Successfully!", "success");
+                    problemQueue = [];
+                    renderQueue();
+                    document.getElementById('contestName').value = '';
+                    loadExistingDebugContests(); 
+                    
+                    setTimeout(() => {
+                        window.location.href = 'moderator.html';
+                    }, 1500);
+                } else {
+                    showToast(data.message || "Failed to launch contest", "error");
+                }
+            } catch (err) {
+                console.error("Launch Error:", err);
+                showToast("Network error. Please check your connection.", "error");
+            }
         }
-    } catch (err) {
-        console.error("Launch Error:", err);
-        showToast("Network error. Please check your connection.", "error");
-    }
-}
 
         function showToast(m, type) {
             const t = document.createElement('div');
