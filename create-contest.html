@@ -318,6 +318,9 @@
                                 <td><span class="status-badge ${statusClass}">${c.status}</span></td>
                                 <td>${new Date(c.created_at).toLocaleDateString()}</td>
                                 <td style="text-align: right; display: flex; gap: 8px; justify-content: flex-end;">
+                                    <button class="btn btn-success btn-sm" onclick="exportContestReport('${c.contest_id}')" title="Export CSV">
+                                        <i class="fas fa-file-csv"></i>
+                                    </button>
                                     <button class="btn ${isHeld ? 'btn-success' : 'btn-warning'} btn-sm" 
                                             onclick="toggleContestStatus('${c.contest_id}', '${isHeld ? 'active' : 'held'}')"
                                             title="${isHeld ? 'Release' : 'Hold'}">
@@ -336,6 +339,28 @@
                 }
             } catch (e) {
                 showToast("Failed to fetch contests", "error");
+            }
+        }
+
+        async function exportContestReport(contestId) {
+            try {
+                showToast("Generating report...", "success");
+                const response = await fetch(`${API_URL}/moderator/contest/${contestId}/export-csv`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!response.ok) throw new Error('Export failed');
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Results_Contest_${contestId}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+            } catch (e) {
+                showToast("Error exporting contest report", "error");
             }
         }
 
@@ -593,33 +618,28 @@
         async function exportActualScores() {
     const btn = document.getElementById('exportBtn');
     try {
-        // Change UI to loading state
         btn.style.opacity = "0.5";
         btn.style.pointerEvents = "none";
 
         const response = await fetch(`${API_URL}/moderator/export-scores`, {
             method: 'GET',
-            headers: { 
-                'Authorization': `Bearer ${token}` 
-            }
+            headers: { 'Authorization': `Bearer ${token}` }
         });
 
         if (!response.ok) throw new Error('API response was not ok');
 
-        // Process the file download
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `Actual_Scores_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`;
+        a.download = `Global_Aggregated_Scores.csv`;
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
         
-        showToast("Scores exported successfully", "success");
+        showToast("Aggregated scores exported successfully", "success");
     } catch (e) {
-        console.error(e);
-        showToast("Failed to export scores. Check server logs.", "error");
+        showToast("Failed to export scores.", "error");
     } finally {
         btn.style.opacity = "1";
         btn.style.pointerEvents = "auto";
