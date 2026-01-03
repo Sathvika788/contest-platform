@@ -472,81 +472,27 @@ function startDebuggingContest(contestId) {
     }
 }
 
-        async function submitSolution() {
-    const subBtn = document.getElementById('submitBtn');
-    const out = document.getElementById('outputBox');
-    
-    // 1. Capture the current code from CodeMirror
-    const currentCode = editor.getValue(); 
-
-    if (!currentCode.trim()) {
-        alert("Please fix the code before submitting.");
-        return;
-    }
-
-    // Disable button to prevent double-submission
-    subBtn.disabled = true;
-    subBtn.style.opacity = "0.5";
-
+        // In student-debug.html, ensure submitSolution updates the score
+async function submitSolution() {
     try {
-        // 2. Send request to the backend
         const res = await fetch(`${API_URL}/student/submit-debug-solution`, {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json', 
-                'Authorization': `Bearer ${token}` 
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ 
                 contest_id: contestId, 
                 problem_index: selectedIndex, 
-                fixed_code: currentCode 
+                fixed_code: editor.getValue() 
             })
         });
-        
         const result = await res.json();
-        
         if (result.success) {
-            // 3. Update local data and UI state
-            const problem = contestData.problems[selectedIndex];
-            problem.attempts_taken = result.data.attempts_taken;
-            problem.passed = result.data.passed;
-
-            // Update score display
-            document.getElementById('scoreBadge').textContent = `Score: ${result.data.student_progress?.total_score || 0}`;
-
-            // 4. Logic: Handle "Max Attempts Reached" vs "Standard Result"
-            const maxAllowed = 2; 
-            if (!problem.passed && problem.attempts_taken >= maxAllowed) {
-                // Show locked status modal
-                document.getElementById('modalTitle').textContent = "❌ Question Locked";
-                document.getElementById('modalMessage').textContent = "Maximum attempts reached for this bug. You can no longer edit this problem.";
-                document.getElementById('resultModal').classList.add('active');
-                
-                // Refresh Sidebar and UI to show locked state
-                renderSidebar();
-                selectProblem(selectedIndex);
-            } else {
-                // Show standard result modal
-                document.getElementById('modalTitle').textContent = result.data.passed ? "✅ Bug Resolved!" : "❌ Fix Failed";
-                document.getElementById('modalMessage').textContent = result.data.message;
-                document.getElementById('resultModal').classList.add('active');
-                
-                renderSidebar(); 
-                selectProblem(selectedIndex);
-            }
-        } else {
-            alert(result.message || "Submission failed");
-            subBtn.disabled = false;
-            subBtn.style.opacity = "1";
+            // Re-fetch contest data to get the updated total_score from the server
+            await loadContest(); 
+            document.getElementById('modalMessage').textContent = result.data.message;
+            document.getElementById('resultModal').classList.add('active');
         }
-    } catch (e) { 
-        console.error("Submit error:", e);
-        alert("A network error occurred. Please try again.");
-        subBtn.disabled = false;
-        subBtn.style.opacity = "1";
-    }
+    } catch (e) { alert("Submission failed"); }
 }
-
 window.addEventListener('beforeunload', (event) => {
     // This warns the user that refreshing might lock their progress
     event.preventDefault();
