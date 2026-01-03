@@ -4928,49 +4928,44 @@ app.get('/api/student/debug-contest/:id', verifyToken, async (req, res) => {
 // Locate this route in server.js
 app.get('/api/student/leaderboard', verifyToken, async (req, res) => {
     try {
-        // 1. Fetch data from all three necessary tables
         const [normalResults, debugResults, students] = await Promise.all([
             client.send(new ScanCommand({ TableName: "StudentResults" })),
             client.send(new ScanCommand({ TableName: "DebugStudentResults" })),
             client.send(new ScanCommand({ TableName: "Students" }))
         ]);
 
-        // 2. Unmarshall DynamoDB JSON into standard JavaScript objects
         const allNormal = (normalResults.Items || []).map(i => unmarshall(i));
         const allDebug = (debugResults.Items || []).map(i => unmarshall(i));
         const allStudents = (students.Items || []).map(i => unmarshall(i));
 
-        // 3. Map students to their total scores
         const rankings = allStudents.map(student => {
-            // Filter results for this specific student email
-            const studentNormal = allNormal.filter(r => r.student_email === student.email);
-            const studentDebug = allDebug.filter(r => r.student_email === student.email);
+            // NORMALIZATION: Important for matching
+            const email = String(student.email || "").toLowerCase().trim();
 
-            // Force conversion to Number to handle the score attributes
-            const normalScore = studentNormal.reduce((sum, r) => sum + (Number(r.total_score) || 0), 0);
-            const debugScore = studentDebug.reduce((sum, r) => sum + (Number(r.total_score) || 0), 0);
+            const studentNormal = allNormal.filter(r => 
+                String(r.student_email || "").toLowerCase().trim() === email);
+            const studentDebug = allDebug.filter(r => 
+                String(r.student_email || "").toLowerCase().trim() === email);
+
+            const normalScoreTotal = studentNormal.reduce((sum, r) => sum + (Number(r.total_score) || 0), 0);
+            const debugScoreTotal = studentDebug.reduce((sum, r) => sum + (Number(r.total_score) || 0), 0);
             
-            const totalScore = normalScore + debugScore;
-
             return {
-                name: student.name || student.email, //
-                college: student.college || "N/A", //
-                totalScore: totalScore, // Consistent key for frontend
-                contestsCompleted: studentNormal.length + studentDebug.length //
+                name: student.name || student.email,
+                college: student.college || "N/A",
+                normalScore: normalScoreTotal, 
+                debugScore: debugScoreTotal,   
+                totalScore: normalScoreTotal + debugScoreTotal,
+                contestsCompleted: studentNormal.length + studentDebug.length
             };
         });
 
-        // 4. Sort by highest score descending
         rankings.sort((a, b) => b.totalScore - a.totalScore);
-
-        // 5. Send the structured data back to the frontend
         res.json({ success: true, data: rankings });
     } catch (err) {
-        console.error("Leaderboard Error:", err);
         res.status(500).json({ success: false, message: "Error fetching rankings" });
     }
 });
-
 // Student submit debug solution
 // server.js - Updated Submission Route
 app.post('/api/student/submit-debug-solution', verifyToken, async (req, res) => {
@@ -7622,70 +7617,138 @@ app.get('/api/moderator/contest/:id/export-csv', verifyToken, async (req, res) =
         }));
 
         const results = (Items || []).map(i => unmarshall(i));
-        
-        // Header row
-        let csvContent = "Student Email,Name,Score,Status,Problems Solved\n";
-        
+        let csv = "Email,Name,Obtained,Max Score,Status\n";
         results.forEach(r => {
-            csvContent += `"${r.student_email}","${r.student_name}",${r.total_score},"${r.status}",${r.problems_solved}\n`;
+            csv += `"${r.student_email}","${r.student_name}",${r.total_score},${r.max_score || 0},"${r.status}"\n`;
         });
 
         res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename=contest_${contestId}_scores.csv`);
-        res.status(200).send(csvContent);
+        res.status(200).send(csv);
     } catch (err) {
-        res.status(500).json({ success: false, message: "Export failed", error: err.message });
+        res.status(500).send(err.message);
     }
 });
 // Global export for all student scores
 // Global export for all student scores with name/email fallback
 // Global export for all student scores with result_id parsing fallback
+// server.js - Updated Global Aggregate Export
 app.get('/api/moderator/export-scores', verifyToken, async (req, res) => {
     try {
-        const { Items } = await client.send(new ScanCommand({
-            TableName: "StudentResults"
-        }));
+        // 1. Fetch results from both regular and debugging tables simultaneously
+        const [normalResults, debugResults] = await Promise.all([
+            client.send(new ScanCommand({ TableName: "StudentResults" })),
+            client.send(new ScanCommand({ TableName: "DebugStudentResults" }))
+        ]);
 
-        if (!Items || Items.length === 0) {
-            return res.status(404).json({ success: false, message: "No results found to export" });
-        }
+        const allNormal = (normalResults.Items || []).map(i => unmarshall(i));
+        const allDebug = (debugResults.Items || []).map(i => unmarshall(i));
 
-        const results = Items.map(i => unmarshall(i));
-        
-        let csvContent = "Student Email,Student Name,Contest Name,Score,Max Score,Status,Problems Solved,Last Updated\n";
-        
-        results.forEach(r => {
-            // FALLBACK LOGIC: Extract email from result_id if student_email is missing
-            let email = r.student_email || r.email;
-            
-            if (!email && r.result_id) {
-                // Splits 'res_email@domain.com_contestId' and takes the middle part
-                const parts = r.result_id.split('_');
-                if (parts.length >= 3) {
-                    email = parts[1]; 
+        // 2. Map to aggregate data by student email
+        const studentMap = new Map();
+
+        const processRows = (rows, isDebug) => {
+            rows.forEach(r => {
+                const email = (r.student_email || "").toLowerCase().trim();
+                if (!email) return;
+
+                if (!studentMap.has(email)) {
+                    studentMap.set(email, {
+                        email: email,
+                        name: r.student_name || r.name || email,
+                        combinedStatus: r.status || "in_progress",
+                        normalScore: 0,
+                        debugScore: 0,
+                        totalMax: 0,
+                        contests: []
+                    });
                 }
-            }
 
-            const finalEmail = email || "Unknown Email";
-            const finalName = r.student_name || r.name || finalEmail; // Use extracted email as name if name is blank
-            const contest = r.contest_name || "Unknown Contest";
-            const score = r.total_score || 0;
-            const maxScore = r.max_score || 0;
-            const status = r.status || "N/A";
-            const solved = r.problems_solved || 0;
-            const date = r.updated_at || r.submission_time || "N/A";
+                const s = studentMap.get(email);
+                if (isDebug) {
+                    s.debugScore += (Number(r.total_score) || 0);
+                } else {
+                    s.normalScore += (Number(r.total_score) || 0);
+                }
+                
+                // Calculate and add to Total Max Score
+                const max = Number(r.max_score) || (r.problem_scores ? r.problem_scores.length * 20 : 0);
+                s.totalMax += max;
+                
+                const contestName = r.contest_name || (isDebug ? "debug" : "normal");
+                if (!s.contests.includes(contestName)) {
+                    s.contests.push(contestName);
+                }
+            });
+        };
 
-            csvContent += `"${finalEmail}","${finalName}","${contest}",${score},${maxScore},"${status}",${solved},"${date}"\n`;
+        processRows(allNormal, false);
+        processRows(allDebug, true);
+
+        // 3. Construct CSV with columns matching your spreadsheet
+        let csvContent = "Student Email,Student Name,Combined Status,Normal Score,Debug Score,Total Obtained,Total Max Score,Contests Attempted\n";
+        
+        studentMap.forEach(s => {
+            const totalObtained = s.normalScore + s.debugScore;
+            const contestsList = s.contests.join(" | ");
+
+            csvContent += `"${s.email}","${s.name}","${s.combinedStatus}",${s.normalScore},${s.debugScore},${totalObtained},${s.totalMax},"${contestsList}"\n`;
         });
 
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename=Actual_Scores_${new Date().toISOString().split('T')[0]}.csv`);
-        
         res.status(200).send(csvContent);
 
     } catch (err) {
         console.error("Export Error:", err);
         res.status(500).json({ success: false, message: "Export failed", error: err.message });
+    }
+});
+// Export Debugging Contest Results to CSV
+// Export Debugging Contest Results to CSV
+app.get('/api/moderator/debug-contest/:id/export-csv', verifyToken, async (req, res) => {
+    try {
+        const contestId = req.params.id;
+        console.log(`Exporting results for contest: ${contestId}`);
+
+        // Try Scan with Filter (Fallback if GSI is not indexed correctly)
+        const { Items } = await client.send(new ScanCommand({
+            TableName: "DebugStudentResults",
+            FilterExpression: "contest_id = :cid",
+            ExpressionAttributeValues: ddbMarshall({ ":cid": contestId })
+        }));
+
+        if (!Items || Items.length === 0) {
+            // Return an empty CSV with headers instead of failing
+            const emptyCsv = "Rank,Student Name,Email,Score,Problems Solved,Last Updated\n";
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', `attachment; filename=Empty_Report.csv`);
+            return res.status(200).send(emptyCsv);
+        }
+
+        const results = Items.map(i => unmarshall(i));
+        
+        // Sort results by score (descending)
+        results.sort((a, b) => (Number(b.total_score) || 0) - (Number(a.total_score) || 0));
+
+        let csv = "Rank,Student Name,Email,Score,Problems Solved,Last Updated\n";
+        results.forEach((r, index) => {
+            const name = r.student_name || "N/A";
+            const email = r.student_email || "N/A";
+            const score = r.total_score || 0;
+            const solved = r.problems_solved || 0;
+            const date = r.updated_at ? new Date(r.updated_at).toLocaleDateString() : "N/A";
+            
+            csv += `${index + 1},"${name}","${email}",${score},${solved},"${date}"\n`;
+        });
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=Debug_Report_${contestId}.csv`);
+        res.status(200).send(csv);
+
+    } catch (err) {
+        console.error("Critical Export Error:", err);
+        // This ensures the frontend gets a JSON error instead of a hang
+        res.status(500).json({ success: false, message: "Server error during CSV generation" });
     }
 });
 // ====================================================
