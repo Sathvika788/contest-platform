@@ -193,8 +193,21 @@
             width: 100%;
         }
         .leaderboard-table { width: 100%; border-collapse: collapse; }
-        .leaderboard-table th { background: #f8fafc; padding: 18px; text-align: left; color: var(--text-muted); font-size: 13px; text-transform: uppercase; font-weight: 700; }
-        .leaderboard-table td { padding: 18px; border-bottom: 1px solid #f1f5f9; font-size: 15px; }
+        
+        .leaderboard-table th, .leaderboard-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .leaderboard-table th { 
+            background: #f8fafc; 
+            color: var(--text-muted); 
+            font-size: 13px; 
+            text-transform: uppercase; 
+            font-weight: 700; 
+        }
+
         .rank-1 { background: #fffbeb; }
         
         /* Score Badge */
@@ -221,6 +234,9 @@
         <div class="nav-item" id="nav-regular" onclick="changeTab('regular')"><i class="fas fa-code"></i> Regular</div>
         <div class="nav-item" id="nav-debug" onclick="changeTab('debug')"><i class="fas fa-bug"></i> Debugging</div>
         <div class="nav-item" id="nav-my" onclick="changeTab('my')"><i class="fas fa-user-check"></i> My History</div>
+        <div class="nav-item" id="nav-leaderboard" onclick="changeTab('leaderboard')">
+            <i class="fas fa-trophy"></i> Leaderboard
+        </div>
         
         <a class="nav-item logout-btn" onclick="logout()">
             <i class="fas fa-sign-out-alt"></i> Logout
@@ -292,137 +308,151 @@
         }
 
         async function renderContests() {
-    const grid = document.getElementById('contestGrid');
-    const tabContainer = document.getElementById('tabContainer');
-    let filteredList = [];
+            const grid = document.getElementById('contestGrid');
+            const tabContainer = document.getElementById('tabContainer');
+            let filteredList = [];
 
-    // Locate the leaderboard rendering block inside renderContests()
-if (currentTab === 'leaderboard') {
-    tabContainer.style.display = 'none';
-    grid.innerHTML = '<div class="no-contests"><i class="fas fa-spinner fa-spin"></i> Loading rankings...</div>';
-    try {
-        const res = await fetch(`${API_URL}/student/leaderboard`, { 
-            headers: { 'Authorization': `Bearer ${token}` } 
-        });
-        const leaderboardData = await res.json();
-        const data = leaderboardData.data || [];
-        
-        if (data.length === 0) {
-            grid.innerHTML = '<div class="no-contests">No students ranked yet.</div>';
-            return;
+            if (currentTab === 'leaderboard') {
+                tabContainer.style.display = 'none'; 
+                grid.innerHTML = '<div class="no-contests"><i class="fas fa-spinner fa-spin"></i> Loading rankings...</div>';
+                try {
+                    const res = await fetch(`${API_URL}/student/leaderboard`, { 
+                        headers: { 'Authorization': `Bearer ${token}` } 
+                    });
+                    const leaderboardData = await res.json();
+                    const data = leaderboardData.data || [];
+                    
+                    if (data.length === 0) {
+                        grid.innerHTML = '<div class="no-contests">No students ranked yet.</div>';
+                        return;
+                    }
+
+                    grid.innerHTML = `
+                        <div class="leaderboard-container">
+                        <table class="leaderboard-table">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Student</th>
+                                    <th>College</th>
+                                    <th style="text-align: center;">Normal Score</th>
+                                    <th style="text-align: center;">Debug Score</th>
+                                    <th style="text-align: center;">Total Score</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.map((s, i) => `
+                                    <tr class="${i === 0 ? 'rank-1' : ''}">
+                                        <td>#${i + 1}</td>
+                                        <td>
+                                            <strong>${s.name}</strong>
+                                            <div style="font-size:10px; color:gray">${s.contestsCompleted} Contests</div>
+                                        </td>
+                                        <td>${s.college}</td>
+                                        <td style="text-align: center; color: var(--primary); font-weight: 600;">
+                                            ${s.normalScore || 0}
+                                        </td>
+                                        <td style="text-align: center; color: #7e22ce; font-weight: 600;">
+                                            ${s.debugScore || 0}
+                                        </td>
+                                        <td style="text-align: center;">
+                                            <span class="score-badge">
+                                                ${s.totalScore || 0}
+                                            </span>
+                                        </td>
+                                    </tr>`).join('')}
+                            </tbody>
+                        </table></div>`;
+                    
+                    document.getElementById('contestsCount').textContent = `${data.length} Ranked Participants`;
+                    return;
+                } catch (e) { 
+                    console.error("Leaderboard render error:", e);
+                    grid.innerHTML = '<div class="no-contests">Leaderboard unavailable.</div>'; 
+                    return; 
+                }
+            }
+
+            tabContainer.style.display = 'flex';
+            
+            if (currentTab === 'all') {
+                filteredList = progressionRules.map(rule => {
+                    const regResult = studentResults[rule.normal_contest_id];
+                    const hasPassed = regResult && regResult.total_score >= rule.passing_score;
+                    return { 
+                        ...rule, 
+                        type: 'progression', 
+                        isLocked: !hasPassed, 
+                        currentScore: regResult?.total_score || 0 
+                    };
+                });
+            } else if (currentTab === 'regular') {
+                filteredList = allRegularContests.map(c => ({...c, type: 'regular'}));
+            } else if (currentTab === 'debug') {
+                filteredList = allDebugContests.map(c => ({...c, type: 'debug'}));
+            } else if (currentTab === 'my') {
+                filteredList = [...allRegularContests, ...allDebugContests].filter(c => studentResults[c.contest_id]);
+            }
+
+            document.getElementById('contestsCount').textContent = `${filteredList.length} Contests Available`;
+
+            if (filteredList.length === 0) {
+                grid.innerHTML = `<div class="no-contests">No contests found for this category.</div>`;
+                return;
+            }
+
+            grid.innerHTML = filteredList.map(c => {
+                const isProg = c.type === 'progression';
+                const result = studentResults[isProg ? c.normal_contest_id : c.contest_id];
+                
+                return `
+                    <div class="contest-card">
+                        <span class="contest-type type-${isProg ? 'progression' : c.type}">
+                            ${isProg ? 'Step Based' : c.type}
+                        </span>
+                        <h4>${isProg ? c.normal_contest_name : (c.title || c.name)}</h4>
+                        <p style="font-size:13px; color:var(--text-muted)">
+                            <i class="fas fa-code"></i> ${c.language || 'Multi-language'}
+                        </p>
+                        
+                        ${isProg ? `
+                            <div class="progression-info">
+                                <strong>Unlock Goal:</strong> Pass with ${c.passing_score}%<br>
+                                <strong>Next Step:</strong> ${c.debug_contest_name}
+                            </div>
+                        ` : ''}
+
+                        <div style="margin-top:20px;">
+                            ${isProg && c.isLocked ? `
+                                <div style="color:var(--danger); font-size:11px; margin-bottom:8px;">
+                                    <i class="fas fa-lock"></i> Reach ${c.passing_score}% to unlock Debugging
+                                </div>
+                                <button class="btn-join" onclick="startContest('${c.normal_contest_id}', 'regular')">Attempt Regular</button>
+                            ` : isProg && !c.isLocked ? `
+                                <div style="color:var(--success); font-size:11px; margin-bottom:8px;">
+                                    <i class="fas fa-lock-open"></i> Next Step Unlocked!
+                                </div>
+                                <button class="btn-join" style="background:#7e22ce" onclick="startContest('${c.debug_contest_id}', 'debug')">Start Debugging</button>
+                            ` : `
+                                <button class="btn-join" onclick="startContest('${c.contest_id}', '${c.type}')">
+                                    ${result ? 'Review Submission' : 'Enter Contest'}
+                                </button>
+                            `}
+                        </div>
+                    </div>`;
+            }).join('');
         }
 
-        grid.innerHTML = `
-            <div class="leaderboard-container">
-            <table class="leaderboard-table">
-                <thead>
-                    <tr>
-                        <th>Rank</th>
-                        <th>Student</th>
-                        <th>College</th>
-                        <th style="text-align: center;">Score</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${data.map((s, i) => `
-                        <tr class="${i === 0 ? 'rank-1' : ''}">
-                            <td>${i + 1}</td>
-                            <td><strong>${s.name}</strong></td>
-                            <td>${s.college}</td>
-                            <td style="text-align: center;">
-                                <span class="score-badge">
-                                    ${s.totalScore ?? 0}
-                                </span>
-                            </td>
-                        </tr>`).join('')}
-                </tbody>
-            </table></div>`;
-        
-        document.getElementById('contestsCount').textContent = `${data.length} Ranked Participants`;
-        return;
-    } catch (e) { 
-        console.error("Leaderboard render error:", e);
-        grid.innerHTML = '<div class="no-contests">Leaderboard unavailable.</div>'; 
-        return; 
-    }
-}
-    // --- NORMAL CONTEST VIEW ---
-    tabContainer.style.display = 'flex';
-    
-    if (currentTab === 'all') {
-        filteredList = progressionRules.map(rule => {
-            const regResult = studentResults[rule.normal_contest_id];
-            const hasPassed = regResult && regResult.total_score >= rule.passing_score;
-            return { 
-                ...rule, 
-                type: 'progression', 
-                isLocked: !hasPassed, 
-                currentScore: regResult?.total_score || 0 
-            };
-        });
-    } else if (currentTab === 'regular') {
-        filteredList = allRegularContests.map(c => ({...c, type: 'regular'}));
-    } else if (currentTab === 'debug') {
-        filteredList = allDebugContests.map(c => ({...c, type: 'debug'}));
-    } else if (currentTab === 'my') {
-        filteredList = [...allRegularContests, ...allDebugContests].filter(c => studentResults[c.contest_id]);
-    }
-
-    document.getElementById('contestsCount').textContent = `${filteredList.length} Contests Available`;
-
-    if (filteredList.length === 0) {
-        grid.innerHTML = `<div class="no-contests">No contests found for this category.</div>`;
-        return;
-    }
-
-    grid.innerHTML = filteredList.map(c => {
-        const isProg = c.type === 'progression';
-        const result = studentResults[isProg ? c.normal_contest_id : c.contest_id];
-        
-        return `
-            <div class="contest-card">
-                <span class="contest-type type-${isProg ? 'progression' : c.type}">
-                    ${isProg ? 'Step Based' : c.type}
-                </span>
-                <h4>${isProg ? c.normal_contest_name : (c.title || c.name)}</h4>
-                <p style="font-size:13px; color:var(--text-muted)">
-                    <i class="fas fa-code"></i> ${c.language || 'Multi-language'}
-                </p>
-                
-                ${isProg ? `
-                    <div class="progression-info">
-                        <strong>Unlock Goal:</strong> Pass with ${c.passing_score}%<br>
-                        <strong>Next Step:</strong> ${c.debug_contest_name}
-                    </div>
-                ` : ''}
-
-                <div style="margin-top:20px;">
-                    ${isProg && c.isLocked ? `
-                        <div style="color:var(--danger); font-size:11px; margin-bottom:8px;">
-                            <i class="fas fa-lock"></i> Reach ${c.passing_score}% to unlock Debugging
-                        </div>
-                        <button class="btn-join" onclick="startContest('${c.normal_contest_id}', 'regular')">Attempt Regular</button>
-                    ` : isProg && !c.isLocked ? `
-                        <div style="color:var(--success); font-size:11px; margin-bottom:8px;">
-                            <i class="fas fa-lock-open"></i> Next Step Unlocked!
-                        </div>
-                        <button class="btn-join" style="background:#7e22ce" onclick="startContest('${c.debug_contest_id}', 'debug')">Start Debugging</button>
-                    ` : `
-                        <button class="btn-join" onclick="startContest('${c.contest_id}', '${c.type}')">
-                            ${result ? 'Review Submission' : 'Enter Contest'}
-                        </button>
-                    `}
-                </div>
-            </div>`;
-    }).join('');
-}
         function changeTab(tabId) {
             currentTab = tabId;
             document.querySelectorAll('.tab, .nav-item').forEach(t => t.classList.remove('active'));
+            
             const tabEl = document.getElementById(`tab-${tabId}`);
             const navEl = document.getElementById(`nav-${tabId}`);
+            
             if(tabEl) tabEl.classList.add('active');
             if(navEl) navEl.classList.add('active');
+            
             renderContests();
         }
 
